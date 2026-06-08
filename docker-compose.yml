@@ -1,0 +1,11 @@
+services:
+  backend:
+    build: .
+    container_name: vestaspotter
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8011:8011"
+    volumes:
+      - ./data:/app/data

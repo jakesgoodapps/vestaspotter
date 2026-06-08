@@ -1,0 +1,28 @@
+# Aircraft types that are RARE at DCA specifically (in addition to the global
+# rare list in enrichment.py: A380, 747, 777, 787, A330/350, MD-11, Concorde).
+#
+# Calibration: only flag types that pass overhead a *few times a day at most*.
+# DCA's perimeter rule means most traffic is narrowbody (737/A320 family) and
+# regional jets — those should NOT be flagged. 737 MAX, A321neo, CRJs, ERJs
+# all show up dozens of times a day. Same for private/corporate jets — DCA
+# is a corporate hub and Gulfstreams/Falcons/Challengers are everyday sights.
+#
+# Edit this file freely as you observe DCA traffic — drop, rebuild, done.
+
+# Mainline that's actually rare at DCA
+B752: "BOEING 757-200"      # United's once-a-day from DEN; very occasional
+B753: "BOEING 757-300"      # Extremely rare
+B763: "BOEING 767-300"      # Pretty much only diversions
+A332: "AIRBUS A330-200"     # Almost never at DCA
+A333: "AIRBUS A330-300"
+
+# Military / VIP / once-in-a-while specials
+C17:  "MILITARY C-17"
+C5:   "MILITARY C-5"
+C130: "MILITARY C-130"
+KC10: "MILITARY KC-10"
+KC46: "MILITARY KC-46"
+KC35: "MILITARY KC-135"
+E3CF: "MILITARY E-3 SENTRY"
+E4:   "MILITARY E-4B"       # Nightwatch — doomsday plane
+VC25: "AIR FORCE ONE"       # YES PLEASE

@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local config — every install has its own
+.env
+.env.bak
+
+# Runtime data (databases, caches, snapshots)
+data/
+*.db
+*.db-journal
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Local production overrides (reverse proxy, custom networks, etc.) —
+# see docker-compose.override.example.yml
+docker-compose.override.yml

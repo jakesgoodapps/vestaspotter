@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VestaSpotter</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-elev: #1f262d;
+    --border: #2d333b;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #f5c518;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --blue: #58a6ff;
+    --orange: #ff7b00;
+    --violet: #9d75ff;
+    --tile-red: #d63b3b;
+    --tile-orange: #e07b3f;
+    --tile-yellow: #e8c547;
+    --tile-green: #4a9b59;
+    --tile-blue: #3a6fb0;
+    --tile-violet: #7e5db8;
+    --tile-white: #d8d8d8;
+    --tile-black: #1a1a1a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; line-height: 1.4; }
+  body { max-width: 720px; margin: 0 auto; padding: 16px 12px 60px; }
+
+  /* Header */
+  header { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 4px 4px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+  header h1 { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+  header h1 .crown { color: var(--accent); }
+  header .sub { color: var(--text-dim); font-size: 12px; margin-top: 4px; font-family: ui-monospace, "SF Mono", monospace; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+  .pill.live { background: rgba(63,185,80,.15); color: var(--green); }
+  .pill.paused { background: rgba(248,81,73,.15); color: var(--red); }
+  .pill.quiet { background: rgba(210,153,34,.15); color: var(--yellow); }
+  .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+  /* Card */
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .card-title { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px; font-weight: 600; }
+
+  /* Board preview — actual 6x22 grid */
+  .board-wrap { display: flex; justify-content: center; }
+  .board { display: grid; grid-template-columns: repeat(22, minmax(0, 1fr)); gap: 2px; padding: 8px; background: #000; border-radius: 6px; box-shadow: inset 0 0 12px rgba(0,0,0,.6); width: 100%; max-width: 560px; aspect-ratio: 22 / 6; }
+  .cell { background: var(--tile-black); color: #fefefe; display: flex; align-items: center; justify-content: center; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-weight: 700; border-radius: 1px; min-height: 0; aspect-ratio: 1; }
+  .cell.t63 { background: var(--tile-red); } .cell.t64 { background: var(--tile-orange); }
+  .cell.t65 { background: var(--tile-yellow); } .cell.t66 { background: var(--tile-green); }
+  .cell.t67 { background: var(--tile-blue); } .cell.t68 { background: var(--tile-violet); }
+  .cell.t69 { background: var(--tile-white); color: var(--tile-black); } .cell.t70 { background: #000; }
+  .cell.t71 { background: #888; }
+  .cell .char { font-size: clamp(8px, 1.8vw, 14px); line-height: 1; }
+  .board-empty { color: var(--text-dim); font-size: 13px; padding: 30px 0; text-align: center; }
+
+  /* Now-overhead */
+  .now { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .now-block .label { color: var(--text-dim); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+  .now-block .value { font-family: ui-monospace, "SF Mono", monospace; font-size: 16px; font-weight: 600; }
+  .now-block .value.big { font-size: 22px; }
+  .now-block .sub { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+  .stat-box { padding: 10px 6px; background: var(--bg-elev); border-radius: 6px; }
+  .stat-num { font-family: ui-monospace, monospace; font-size: 26px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); margin-top: 4px; }
+  .flow-indicator { margin-top: 10px; padding: 8px 12px; border-radius: 6px; background: var(--bg-elev); font-size: 12px; color: var(--text-dim); text-align: center; }
+  .flow-indicator .flow-tag { color: var(--accent); font-weight: 600; }
+
+  /* Leaderboard */
+  table.lb { width: 100%; border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 13px; }
+  table.lb th { text-align: left; padding: 6px 8px; color: var(--text-dim); font-weight: 500; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  table.lb td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,.04); }
+  table.lb td.tail { font-weight: 600; }
+  table.lb td.cnt { text-align: right; color: var(--accent); font-weight: 700; }
+  table.lb tr:last-child td { border-bottom: none; }
+  table.lb .king { color: var(--accent); }
+
+  /* Settings chips */
+  .setting-row { margin-bottom: 14px; }
+  .setting-row:last-child { margin-bottom: 0; }
+  .setting-label { font-size: 11px; color: var(--text-dim); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { flex: 1 1 auto; background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .12s; min-width: 0; text-align: center; }
+  .chip:hover { background: #2a3138; }
+  .chip.active { background: rgba(245,197,24,.15); color: var(--accent); border-color: var(--accent); }
+  .setting-hint { color: var(--text-dim); font-size: 11px; margin-top: 6px; font-style: italic; }
+
+  /* Controls */
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .custom-pause { display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--bg-elev); border-radius: 8px; }
+  .custom-pause label { color: var(--text-dim); font-size: 12px; }
+  .custom-pause input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, monospace; font-size: 13px; min-width: 0; }
+  .custom-pause input:focus { outline: none; border-color: var(--accent); }
+  .custom-pause button { flex: 0 0 auto; min-width: 80px; padding: 8px 14px; }
+  button { background: var(--bg-elev); color: var(--text); border: 1px solid var(--border); padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all .12s; flex: 1 1 auto; min-width: 70px; }
+  button:hover { background: #2a3138; border-color: #3b434b; }
+  button:active { transform: translateY(1px); }
+  button.danger { color: var(--red); border-color: rgba(248,81,73,.3); }
+  button.danger:hover { background: rgba(248,81,73,.1); }
+  button.resume { color: var(--green); border-color: rgba(63,185,80,.3); }
+  button.resume:hover { background: rgba(63,185,80,.1); }
+
+  /* Pause countdown */
+  .pause-banner { background: rgba(248,81,73,.08); border: 1px solid rgba(248,81,73,.3); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .pause-banner .head { color: var(--red); font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .pause-banner .countdown { font-family: ui-monospace, monospace; font-size: 22px; font-weight: 700; }
+  .pause-banner .sub { color: var(--text-dim); font-size: 11px; margin-top: 4px; }
+
+  /* Footer */
+  footer { color: var(--text-dim); font-size: 10px; text-align: center; padding: 18px 0 0; font-family: ui-monospace, monospace; }
+  footer .last-push { color: var(--green); }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 480px) {
+    body { padding: 12px 8px 60px; }
+    .now { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* Guest mode — strips out all controls AND private data so the URL is safe to share */
+  body.guest .card.controls-card,
+  body.guest .card.settings-card,
+  body.guest .card.cost-card,
+  body.guest #pause-banner { display: none !important; }
+  body.guest header .pill { display: none; }
+  body.guest::before { content: 'GUEST VIEW · LIVE'; display: block; text-align: center; font-size: 9px; letter-spacing: 0.2em; color: var(--text-dim); padding-bottom: 4px; }
+
+  /* Activity feed */
+  .feed { font-family: ui-monospace, "SF Mono", monospace; font-size: 12px; max-height: 280px; overflow-y: auto; }
+  .feed-row { display: grid; grid-template-columns: 60px 1fr 1fr 70px; gap: 8px; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,.04); align-items: center; }
+  .feed-row:last-child { border-bottom: none; }
+  .feed-time { color: var(--text-dim); font-size: 11px; }
+  .feed-flight { color: var(--text); font-weight: 600; }
+  .feed-route { color: var(--text-dim); font-size: 11px; }
+  .feed-tail { color: var(--accent); font-size: 11px; text-align: right; }
+  .feed-dir { color: var(--green); }
+  .feed-dir.dep { color: var(--blue); }
+
+  /* POTUS detector */
+  .potus-card { border-color: var(--border); transition: border-color .3s, background-color .3s; }
+  .potus-card.confirmed { border-color: var(--blue); background: rgba(88,166,255,.06); }
+  .potus-card.imminent { border-color: var(--red); background: rgba(248,81,73,.08); animation: potus-pulse 1.4s ease-in-out infinite; }
+  @keyframes potus-pulse { 0%,100% { background: rgba(248,81,73,.08); } 50% { background: rgba(248,81,73,.16); } }
+  .potus-state { font-family: ui-monospace, monospace; font-size: 18px; font-weight: 700; }
+  .potus-state.idle { color: var(--text-dim); }
+  .potus-state.circling { color: var(--accent); }
+  .potus-state.confirmed { color: var(--blue); }
+  .potus-state.imminent { color: var(--red); }
+  .potus-state.post { color: var(--text-dim); }
+  .potus-detail { color: var(--text-dim); font-size: 11px; margin-top: 4px; font-family: ui-monospace, monospace; }
+  .potus-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; font-family: ui-monospace, monospace; font-size: 10px; }
+  .potus-meta .box { background: var(--bg-elev); padding: 6px; border-radius: 4px; text-align: center; }
+  .potus-meta .box .v { color: var(--text); font-weight: 600; font-size: 14px; }
+  .potus-meta .box .l { color: var(--text-dim); letter-spacing: 0.05em; }
+
+  /* Helicopter dashboard */
+  .heli-headline { display: flex; align-items: baseline; gap: 16px; margin-bottom: 10px; flex-wrap: wrap; }
+  .heli-num { font-family: ui-monospace, monospace; font-size: 24px; font-weight: 700; color: var(--accent); }
+  .heli-label { color: var(--text-dim); font-size: 11px; }
+  .heli-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+  .heli-list-title { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px; }
+  .heli-row { font-family: ui-monospace, monospace; font-size: 11px; display: grid; grid-template-columns: 1fr auto; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .heli-row .c { color: var(--accent); font-weight: 600; padding-left: 4px; }
+  @media (max-width: 480px) {
+    .heli-split { grid-template-columns: 1fr; }
+  }
+
+  /* Daily history */
+  .history-grid { display: grid; grid-template-columns: repeat(14, 1fr); gap: 3px; align-items: end; height: 60px; margin-bottom: 8px; }
+  .hist-bar { background: var(--bg-elev); border-radius: 1px; min-height: 2px; position: relative; cursor: help; }
+  .hist-bar.has-data { background: var(--blue); }
+  .history-labels { display: grid; grid-template-columns: repeat(14, 1fr); gap: 3px; color: var(--text-dim); font-size: 8px; text-align: center; font-family: ui-monospace, monospace; }
+  .history-row { display: grid; grid-template-columns: 1fr 1fr 1fr 80px; gap: 8px; font-family: ui-monospace, monospace; font-size: 11px; padding: 5px 4px; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .history-row:first-child { color: var(--text-dim); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .history-row .date-col { color: var(--text); font-weight: 600; }
+  .history-row .num { text-align: right; color: var(--accent); }
+  .history-row .top-col { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Scheduled profiles */
+  .profile-row { display: grid; grid-template-columns: auto 1fr 80px 80px 24px; gap: 8px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,.04); font-family: ui-monospace, monospace; font-size: 11px; align-items: center; }
+  .profile-row:last-child { border-bottom: none; }
+  .profile-row .pname { color: var(--text); font-weight: 600; font-family: -apple-system, system-ui, sans-serif; font-size: 12px; }
+  .profile-row .ptime { color: var(--text-dim); }
+  .profile-row .prr { color: var(--accent); }
+  .profile-row .pfm { color: var(--text); }
+  .profile-row.active { background: rgba(245,197,24,.08); border-radius: 4px; }
+  .profile-row.active::before { content: '▸ '; color: var(--accent); }
+  .profile-add { display: grid; grid-template-columns: 1fr 70px 70px 1fr 1fr auto; gap: 6px; margin-top: 10px; padding: 10px; background: var(--bg-elev); border-radius: 6px; align-items: center; }
+  .profile-add input, .profile-add select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 11px; font-family: inherit; min-width: 0; }
+  .profile-add button { padding: 6px 12px; font-size: 11px; min-width: auto; }
+  .active-rule-badge { font-size: 10px; color: var(--accent); margin-top: 4px; font-style: italic; }
+
+  /* Watch list */
+  .watch-add { display: flex; gap: 6px; margin-bottom: 10px; }
+  .watch-add input { flex: 1; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, monospace; font-size: 13px; min-width: 0; text-transform: uppercase; }
+  .watch-add input.note-input { text-transform: none; flex: 1.3; }
+  .watch-add input:focus { outline: none; border-color: var(--accent); }
+  .watch-add button { flex: 0 0 auto; padding: 8px 14px; min-width: 70px; font-size: 12px; }
+  .watch-add .shortcut { font-size: 11px; }
+  .watch-row { display: grid; grid-template-columns: 80px 1fr 24px; gap: 8px; padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,.04); align-items: center; font-family: ui-monospace, monospace; font-size: 12px; }
+  .watch-row:last-child { border-bottom: none; }
+  .watch-tail { color: var(--accent); font-weight: 700; }
+  .watch-note { color: var(--text-dim); font-family: -apple-system, system-ui, sans-serif; }
+  .watch-x { color: var(--text-dim); background: none; border: none; cursor: pointer; padding: 4px; font-size: 16px; line-height: 1; }
+  .watch-x:hover { color: var(--red); }
+  .watch-empty { color: var(--text-dim); font-size: 12px; text-align: center; padding: 14px 0; font-style: italic; }
+
+  /* Cost monitor */
+  .cost-headline { display: flex; align-items: baseline; gap: 12px; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; }
+  .cost-now { font-family: ui-monospace, monospace; font-size: 28px; font-weight: 700; color: var(--accent); }
+  .cost-now.warn { color: var(--yellow); }
+  .cost-now.danger { color: var(--red); }
+  .cost-projection { font-size: 11px; color: var(--text-dim); text-align: right; line-height: 1.5; }
+  .cost-projection .num { color: var(--text); font-weight: 600; font-family: ui-monospace, monospace; }
+  .cost-breakdown { font-family: ui-monospace, monospace; font-size: 11px; }
+  .cost-row { display: grid; grid-template-columns: 1fr 60px 60px; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .cost-row:last-child { border-bottom: none; }
+  .cost-row .ep { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cost-row .ct { text-align: right; color: var(--text); }
+  .cost-row .$$ { text-align: right; color: var(--accent); font-weight: 600; }
+
+  /* Heatmap */
+  .heat-wrap { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; align-items: end; height: 60px; padding: 4px 0; }
+  .heat-bar { background: var(--bg-elev); border-radius: 1px; min-height: 2px; position: relative; }
+  .heat-bar.has-data { background: var(--accent); }
+  .heat-bar.current-hour { box-shadow: 0 0 0 1px var(--accent); }
+  .heat-labels { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; color: var(--text-dim); font-size: 8px; text-align: center; font-family: ui-monospace, monospace; margin-top: 4px; }
+  .heat-labels span { overflow: hidden; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>VestaSpotter <span class="crown">✈</span></h1>
+    <div class="sub" id="sub">—</div>
+  </div>
+  <span id="status-pill" class="pill live"><span class="pulse-dot"></span>LIVE</span>
+</header>
+
+<!-- POTUS detector banner (always shown, color/intensity reflects state) -->
+<div class="card potus-card" id="potus-card">
+  <div class="card-title">POTUS Movement Detector <span style="color: var(--text-dim); font-weight: 400; text-transform: none; letter-spacing: 0;">· Park Police helo over White House</span></div>
+  <div class="potus-state idle" id="potus-state">IDLE</div>
+  <div class="potus-detail" id="potus-detail">No security helicopter pattern detected over the White House.</div>
+  <div class="potus-meta">
+    <div class="box"><div class="v" id="potus-laps">0</div><div class="l">LAPS</div></div>
+    <div class="box"><div class="v" id="potus-helo">—</div><div class="l">ACTIVE HELO</div></div>
+    <div class="box"><div class="v" id="potus-dist">—</div><div class="l">DIST TO WH</div></div>
+  </div>
+  <div class="potus-detail" id="potus-schedule" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);">Schedule: loading…</div>
+</div>
+
+<!-- Pause banner (hidden when not paused) -->
+<div id="pause-banner" class="pause-banner" style="display:none">
+  <div class="head">⏸ Paused</div>
+  <div class="countdown" id="pause-countdown">--:--:--</div>
+  <div class="sub">Polls and pushes suspended. Will auto-resume.</div>
+</div>
+
+<!-- Current overhead -->
+<div class="card">
+  <div class="card-title">Now Overhead</div>
+  <div class="now">
+    <div class="now-block">
+      <div class="label">Flight</div>
+      <div class="value big" id="now-flight">—</div>
+      <div class="sub" id="now-route">No traffic in view</div>
+    </div>
+    <div class="now-block">
+      <div class="label">Aircraft</div>
+      <div class="value" id="now-aircraft">—</div>
+      <div class="sub" id="now-tail">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- Board preview -->
+<div class="card">
+  <div class="card-title">Board Preview (live)</div>
+  <div class="board-wrap">
+    <div id="board" class="board"></div>
+  </div>
+  <div id="board-empty" class="board-empty" style="display:none">No frame pushed yet today</div>
+</div>
+
+<!-- Today's stats -->
+<div class="card">
+  <div class="card-title">Today (since local midnight)</div>
+  <div class="stats">
+    <div class="stat-box"><div class="stat-num" id="stat-arr">0</div><div class="stat-label">Arrivals seen</div></div>
+    <div class="stat-box"><div class="stat-num" id="stat-dep">0</div><div class="stat-label">Departures seen</div></div>
+    <div class="stat-box"><div class="stat-num" id="stat-total">0</div><div class="stat-label">Total flaps</div></div>
+  </div>
+  <div class="flow-indicator" id="flow-indicator">Runway flow: <span class="flow-tag" id="flow-tag">—</span></div>
+</div>
+
+<!-- Cost monitor (deliberately placed prominently after the $750 May incident) -->
+<div class="card cost-card">
+  <div class="card-title">FlightAware Spend · <span id="cost-month-label">this month</span></div>
+  <div class="cost-headline">
+    <span class="cost-now" id="cost-now">$0.00</span>
+    <span class="cost-projection">
+      today <span class="num" id="cost-today">$0.00</span><br>
+      projected <span class="num" id="cost-projected">$0.00</span>
+    </span>
+  </div>
+  <div class="cost-breakdown" id="cost-breakdown"></div>
+</div>
+
+<!-- Hourly heatmap -->
+<div class="card">
+  <div class="card-title">Today by Hour</div>
+  <div class="heat-wrap" id="heat-wrap"></div>
+  <div class="heat-labels" id="heat-labels"></div>
+</div>
+
+<!-- Recent activity feed -->
+<div class="card">
+  <div class="card-title">Recent Activity</div>
+  <div class="feed" id="feed">
+    <div class="feed-row" style="color: var(--text-dim); text-align: center; display: block;">Loading…</div>
+  </div>
+</div>
+
+<!-- Type leaderboard -->
+<div class="card">
+  <div class="card-title">Most-Seen Aircraft Types</div>
+  <table class="lb">
+    <thead><tr><th>Type</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody id="types-body">
+      <tr><td colspan="2" style="color: var(--text-dim); text-align: center; padding: 18px 0;">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Tail leaderboard -->
+<div class="card">
+  <div class="card-title">King of the Hill · Most-Seen Tails</div>
+  <table class="lb">
+    <thead><tr><th>Tail</th><th>Type</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody id="lb-body">
+      <tr><td colspan="3" style="color: var(--text-dim); text-align: center; padding: 18px 0;">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Helicopter activity -->
+<div class="card">
+  <div class="card-title">Helicopter Activity 🚁 <span style="color: var(--text-dim); font-weight: 400; text-transform: none; letter-spacing: 0;">· low-alt traffic over the area</span></div>
+  <div class="heli-headline">
+    <div><span class="heli-num" id="heli-today">0</span> <span class="heli-label">today</span></div>
+    <div><span class="heli-num" id="heli-total">0</span> <span class="heli-label">all-time</span></div>
+  </div>
+  <div class="heli-split">
+    <div>
+      <div class="heli-list-title">Top Types</div>
+      <div id="heli-types">
+        <div style="color: var(--text-dim); font-size: 11px; padding: 6px 0;">Loading…</div>
+      </div>
+    </div>
+    <div>
+      <div class="heli-list-title">Repeat Tails</div>
+      <div id="heli-tails">
+        <div style="color: var(--text-dim); font-size: 11px; padding: 6px 0;">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Daily history -->
+<div class="card">
+  <div class="card-title">Daily History · last 14 days</div>
+  <div class="history-grid" id="history-grid"></div>
+  <div class="history-labels" id="history-labels"></div>
+  <div style="margin-top: 10px; max-height: 220px; overflow-y: auto;">
+    <div class="history-row"><div>Date</div><div class="num">Flights</div><div class="num">FA $</div><div class="top-col">Top tail</div></div>
+    <div id="history-body"><div style="color: var(--text-dim); text-align: center; padding: 10px;">Loading…</div></div>
+  </div>
+</div>
+
+<!-- Scheduled profiles -->
+<div class="card settings-card">
+  <div class="card-title">Scheduled Profiles · auto-change settings by time of day</div>
+  <div id="profiles-body">
+    <div style="color: var(--text-dim); text-align: center; padding: 10px; font-size: 12px;">No profiles yet. Add one below to auto-throttle during work hours.</div>
+  </div>
+  <div class="profile-add">
+    <input id="prof-name" type="text" placeholder="name (e.g. Workday)" maxlength="20" />
+    <input id="prof-start" type="time" value="09:00" />
+    <input id="prof-end" type="time" value="17:00" />
+    <select id="prof-rr">
+      <option value="every_flight">Every Flight</option>
+      <option value="5min" selected>~5m</option>
+      <option value="10min">~10m</option>
+      <option value="30min">~30m</option>
+    </select>
+    <select id="prof-fm">
+      <option value="all" selected>All Flights</option>
+      <option value="special">Special Only</option>
+    </select>
+    <button class="danger" onclick="addProfile()">Add</button>
+  </div>
+  <div class="active-rule-badge" id="active-rule"></div>
+</div>
+
+<!-- Watch list -->
+<div class="card settings-card">
+  <div class="card-title">Watch List · always alert me <span style="color: var(--text-dim); font-weight: 400; text-transform: none; letter-spacing: 0;">(bypasses throttle + filter)</span></div>
+  <div class="watch-add">
+    <input id="watch-tail-input" type="text" placeholder="tail (e.g. N12345)" maxlength="10" />
+    <input id="watch-note-input" class="note-input" type="text" placeholder="note (optional)" maxlength="40" />
+    <button class="danger" onclick="addWatch()">Add</button>
+  </div>
+  <button id="add-current-btn" class="resume shortcut" style="width: 100%; margin-bottom: 10px; display: none;" onclick="addCurrentToWatch()">+ Add current overhead (<span id="current-tail-hint">—</span>) to watch list</button>
+  <div id="watch-list-body">
+    <div class="watch-empty">No tails on watch list yet</div>
+  </div>
+</div>
+
+<!-- Settings -->
+<div class="card settings-card">
+  <div class="card-title">Board Settings</div>
+  <div class="setting-row">
+    <div class="setting-label">Refresh Rate</div>
+    <div class="chips" id="chips-refresh">
+      <button class="chip" data-rr="every_flight" onclick="setRefreshRate('every_flight')">Every Flight</button>
+      <button class="chip" data-rr="5min" onclick="setRefreshRate('5min')">~5m</button>
+      <button class="chip" data-rr="10min" onclick="setRefreshRate('10min')">~10m</button>
+      <button class="chip" data-rr="30min" onclick="setRefreshRate('30min')">~30m</button>
+    </div>
+    <div class="setting-hint" id="hint-refresh">Polling still tracks every plane — only board flaps are throttled.</div>
+  </div>
+  <div class="setting-row">
+    <div class="setting-label">Filter</div>
+    <div class="chips" id="chips-filter">
+      <button class="chip" data-fm="all" onclick="setFilterMode('all')">All Flights</button>
+      <button class="chip" data-fm="special" onclick="setFilterMode('special')">Special Only ✨</button>
+    </div>
+    <div class="setting-hint" id="hint-filter">"Special" = rare aircraft (757, 747, military) or known custom liveries.</div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="card controls-card">
+  <div class="card-title">Pause</div>
+  <div class="controls">
+    <button class="danger" onclick="doPause(0.5)">30m</button>
+    <button class="danger" onclick="doPause(2)">2h</button>
+    <button class="danger" onclick="doPause(4)">4h</button>
+    <button class="danger" onclick="doPause(8)">8h</button>
+    <button class="danger" onclick="doPause(12)">12h</button>
+  </div>
+  <div class="custom-pause">
+    <label for="custom-hours">or custom:</label>
+    <input id="custom-hours" type="number" min="0.1" max="24" step="0.5" placeholder="hrs" />
+    <button class="danger" onclick="doPauseCustom()">Pause</button>
+  </div>
+  <button class="resume" style="width: 100%; margin-top: 8px;" onclick="doResume()">Resume Now</button>
+</div>
+
+<footer>
+  <div>last push <span class="last-push" id="last-push-age">—</span> ago · poll every <span id="poll-interval">20</span>s</div>
+  <div style="margin-top: 4px">VestaSpotter · <a href="https://github.com/jakesgoodapps/vestaspotter" target="_blank" rel="noopener">open source on GitHub</a></div>
+</footer>
+
+<script>
+const ROWS = 6, COLS = 22;
+const CODE_TO_CHAR = (() => {
+  const m = { 0: ' ', 37: '!', 38: '@', 39: '#', 40: '$', 41: '(', 42: ')', 44: '-', 46: '+', 47: '&', 48: '=', 49: ';', 50: ':', 52: "'", 53: '"', 54: '%', 55: ',', 56: '.', 59: '/', 60: '?', 62: '°' };
+  for (let i = 0; i < 26; i++) m[i+1] = String.fromCharCode(65+i);
+  '1234567890'.split('').forEach((c, i) => m[27+i] = c);
+  return m;
+})();
+const COLOR_CODES = new Set([63,64,65,66,67,68,69,70,71]);
+
+function renderBoard(matrix) {
+  const el = document.getElementById('board');
+  const empty = document.getElementById('board-empty');
+  if (!matrix || matrix.length === 0) { el.style.display = 'none'; empty.style.display = 'block'; return; }
+  el.style.display = 'grid'; empty.style.display = 'none';
+  let html = '';
+  for (const row of matrix) {
+    for (const code of row) {
+      if (COLOR_CODES.has(code)) {
+        html += `<div class="cell t${code}"></div>`;
+      } else {
+        const ch = CODE_TO_CHAR[code] ?? '';
+        html += `<div class="cell"><span class="char">${ch}</span></div>`;
+      }
+    }
+  }
+  el.innerHTML = html;
+}
+
+let pauseRemaining = null;
+function startCountdown() {
+  setInterval(() => {
+    if (pauseRemaining === null) return;
+    pauseRemaining = Math.max(0, pauseRemaining - 1);
+    const h = Math.floor(pauseRemaining / 3600);
+    const m = Math.floor((pauseRemaining % 3600) / 60);
+    const s = pauseRemaining % 60;
+    document.getElementById('pause-countdown').textContent =
+      `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }, 1000);
+}
+
+let lastPushAge = null;
+function startLastPushTicker() {
+  setInterval(() => {
+    if (lastPushAge === null) return;
+    lastPushAge += 1;
+    document.getElementById('last-push-age').textContent = formatAge(lastPushAge);
+  }, 1000);
+}
+
+function formatAge(secs) {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs/60)}m ${secs%60}s`;
+  return `${Math.floor(secs/3600)}h ${Math.floor((secs%3600)/60)}m`;
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    if (!r.ok) throw new Error('status fetch failed');
+    const d = await r.json();
+
+    // Pill status
+    const pill = document.getElementById('status-pill');
+    pill.classList.remove('live', 'paused', 'quiet');
+    if (d.pause?.paused) {
+      pill.classList.add('paused');
+      pill.innerHTML = '<span class="pulse-dot"></span>PAUSED';
+    } else if (d.quiet_hours_active) {
+      pill.classList.add('quiet');
+      pill.innerHTML = '<span class="pulse-dot"></span>QUIET HOURS';
+    } else {
+      pill.classList.add('live');
+      pill.innerHTML = '<span class="pulse-dot"></span>LIVE';
+    }
+
+    // Pause banner
+    const banner = document.getElementById('pause-banner');
+    if (d.pause?.paused) {
+      banner.style.display = 'block';
+      pauseRemaining = d.pause.remaining_seconds;
+    } else {
+      banner.style.display = 'none';
+      pauseRemaining = null;
+    }
+
+    // Now overhead
+    const addCurrentBtn = document.getElementById('add-current-btn');
+    if (d.current_overhead) {
+      const o = d.current_overhead;
+      document.getElementById('now-flight').textContent = o.flight_number || o.callsign || '—';
+      document.getElementById('now-route').textContent =
+        (o.origin_iata || '?') + ' → ' + (o.destination_iata || '?');
+      document.getElementById('now-aircraft').textContent = o.aircraft_name || o.aircraft_type || '—';
+      document.getElementById('now-tail').textContent =
+        (o.registration || 'no tail') + (o.year_built ? ` · ${o.year_built}` : '');
+      if (o.registration && addCurrentBtn) {
+        addCurrentBtn.style.display = 'block';
+        document.getElementById('current-tail-hint').textContent = o.registration;
+      } else if (addCurrentBtn) {
+        addCurrentBtn.style.display = 'none';
+      }
+    } else {
+      document.getElementById('now-flight').textContent = '—';
+      document.getElementById('now-route').textContent = 'No traffic in view';
+      document.getElementById('now-aircraft').textContent = '—';
+      document.getElementById('now-tail').textContent = '—';
+      if (addCurrentBtn) addCurrentBtn.style.display = 'none';
+    }
+
+    // Board preview
+    renderBoard(d.board_matrix);
+
+    // Stats
+    const arr = d.today?.arrivals ?? 0;
+    const dep = d.today?.departures ?? 0;
+    document.getElementById('stat-arr').textContent = arr;
+    document.getElementById('stat-dep').textContent = dep;
+    document.getElementById('stat-total').textContent = arr + dep;
+
+    // Flow indicator — uses the LAST 2-3 sightings, not the cumulative day.
+    // Way more responsive to a real runway switch mid-day.
+    let flow = 'not enough data yet';
+    const rf = d.recent_flow;
+    if (rf && rf.sample_size >= 2) {
+      const sample = `(${rf.arr} arr / ${rf.dep} dep of last ${rf.sample_size})`;
+      if (rf.flow === 'north') flow = `NORTH (rwy 1) · takeoffs past your window ${sample}`;
+      else if (rf.flow === 'south') flow = `SOUTH (rwy 19) · arrivals past your window ${sample}`;
+      else if (rf.flow === 'mixed') flow = `transitioning · runway just switched ${sample}`;
+    }
+    document.getElementById('flow-tag').textContent = flow;
+
+    // Leaderboard
+    const lb = document.getElementById('lb-body');
+    if (d.leaderboard && d.leaderboard.length > 0) {
+      const maxN = d.leaderboard[0].n;
+      lb.innerHTML = d.leaderboard.slice(0, 10).map((r, i) => `
+        <tr>
+          <td class="tail ${r.n === maxN && r.n > 1 ? 'king' : ''}">${r.n === maxN && r.n > 1 ? '👑 ' : ''}${r.registration || '?'}</td>
+          <td style="color: var(--text-dim)">${r.aircraft_type || '—'}</td>
+          <td class="cnt">${r.n}x</td>
+        </tr>`).join('');
+    } else {
+      lb.innerHTML = '<tr><td colspan="3" style="color: var(--text-dim); text-align: center; padding: 18px 0;">No sightings yet</td></tr>';
+    }
+
+    // Last push age
+    if (d.last_push_age_s !== null && d.last_push_age_s !== undefined) {
+      lastPushAge = d.last_push_age_s;
+      document.getElementById('last-push-age').textContent = formatAge(lastPushAge);
+    } else {
+      lastPushAge = null;
+      document.getElementById('last-push-age').textContent = 'never';
+    }
+
+    // Poll interval
+    if (d.poll_interval) document.getElementById('poll-interval').textContent = d.poll_interval;
+
+    // Make the configured airport code available to other render functions
+    if (d.airport_code) {
+      window._airportCode = d.airport_code;
+      document.getElementById('sub').textContent = d.airport_code;
+    }
+
+    // User settings — highlight active chip
+    if (d.user_settings) {
+      const rr = d.user_settings.refresh_rate;
+      const fm = d.user_settings.filter_mode;
+      document.querySelectorAll('#chips-refresh .chip').forEach(b => {
+        b.classList.toggle('active', b.dataset.rr === rr);
+      });
+      document.querySelectorAll('#chips-filter .chip').forEach(b => {
+        b.classList.toggle('active', b.dataset.fm === fm);
+      });
+    }
+
+  } catch (e) {
+    console.error('refresh failed', e);
+    document.getElementById('status-pill').innerHTML = '<span class="pulse-dot"></span>OFFLINE';
+  }
+}
+
+async function loadPotus() {
+  try {
+    const r = await fetch('/api/potus');
+    const d = await r.json();
+    const card = document.getElementById('potus-card');
+    if (d.enabled === false) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    const stateEl = document.getElementById('potus-state');
+    const detailEl = document.getElementById('potus-detail');
+
+    card.classList.remove('confirmed', 'imminent');
+    stateEl.classList.remove('idle', 'circling', 'confirmed', 'imminent', 'post');
+
+    const s = (d.state || 'IDLE').toUpperCase();
+    stateEl.textContent = s;
+    stateEl.classList.add(s.toLowerCase());
+
+    let detail = '';
+    if (s === 'IDLE') {
+      detail = `No security helicopter pattern detected. Watching ${d.tracking_helo_count || 0} low-alt helicopters near WH.`;
+    } else if (s === 'CIRCLING') {
+      detail = `Helo near WH, ${d.laps_observed || 0} lap${d.laps_observed === 1 ? '' : 's'} so far. Need 2+ to confirm.`;
+    } else if (s === 'CONFIRMED') {
+      card.classList.add('confirmed');
+      const age = d.confirmed_age_s || 0;
+      detail = `Security pattern confirmed ${Math.floor(age/60)}m ago. Presidential helo movement expected within 30-40 min.`;
+    } else if (s === 'IMMINENT') {
+      card.classList.add('imminent');
+      const age = d.imminent_age_s || 0;
+      detail = `🚨 Pattern broke ${Math.floor(age/60)}m ${age%60}s ago. Movement expected within ~10 min. LOOK NOW.`;
+    } else if (s === 'POST') {
+      detail = 'Post-movement cooldown. System will return to idle shortly.';
+    }
+    detailEl.textContent = detail;
+
+    document.getElementById('potus-laps').textContent = d.laps_observed ?? 0;
+    document.getElementById('potus-helo').textContent = d.active_callsign || '—';
+    document.getElementById('potus-dist').textContent = d.current_distance_nm !== undefined ? `${d.current_distance_nm}nm` : '—';
+
+    // Schedule context from factba.se
+    const schedEl = document.getElementById('potus-schedule');
+    const sched = d.next_scheduled_movement;
+    if (sched) {
+      const kindWord = sched.kind === 'departure' ? 'departing' : 'arriving';
+      let destStr = '';
+      if (sched.kind === 'departure') {
+        if (sched.final_destination && sched.destination && sched.final_destination.toUpperCase() !== sched.destination.toUpperCase()) {
+          destStr = ` to ${sched.final_destination} (via ${sched.destination})`;
+        } else if (sched.destination) {
+          destStr = ` to ${sched.destination}`;
+        }
+      }
+      const min = sched.minutes_until;
+      const when = min === 0 ? 'right now' : (min > 0 ? `in ${min}m` : `${-min}m ago`);
+      schedEl.textContent = `📅 ${kindWord}${destStr} ${when} (factba.se)`;
+    } else if (d.schedule_cache_age_s === null) {
+      schedEl.textContent = '📅 Schedule: factba.se cache loading…';
+    } else {
+      schedEl.textContent = '📅 No scheduled WH movement in the next 90 min';
+    }
+  } catch (e) { console.error('loadPotus failed', e); }
+}
+
+async function loadHelicopters() {
+  try {
+    const r = await fetch('/api/helicopters');
+    const d = await r.json();
+    document.getElementById('heli-today').textContent = d.today ?? 0;
+    document.getElementById('heli-total').textContent = d.total ?? 0;
+    const types = document.getElementById('heli-types');
+    if (d.top_types && d.top_types.length) {
+      types.innerHTML = d.top_types.slice(0, 6).map(t => `
+        <div class="heli-row"><span>${t.name || t.aircraft_type}</span><span class="c">${t.n}x</span></div>
+      `).join('');
+    } else {
+      types.innerHTML = '<div style="color: var(--text-dim); font-size: 11px; padding: 6px 0;">No helicopters yet</div>';
+    }
+    const tails = document.getElementById('heli-tails');
+    if (d.top_tails && d.top_tails.length) {
+      tails.innerHTML = d.top_tails.slice(0, 6).map(t => `
+        <div class="heli-row"><span>${t.registration}</span><span class="c">${t.n}x</span></div>
+      `).join('');
+    } else {
+      tails.innerHTML = '<div style="color: var(--text-dim); font-size: 11px; padding: 6px 0;">No tails yet</div>';
+    }
+  } catch (e) { console.error('loadHelicopters failed', e); }
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch('/api/history?limit=14');
+    const d = await r.json();
+    const days = (d.days || []).reverse(); // oldest first for the chart
+    const grid = document.getElementById('history-grid');
+    const labels = document.getElementById('history-labels');
+    const body = document.getElementById('history-body');
+    if (!days.length) {
+      grid.innerHTML = ''; labels.innerHTML = '';
+      body.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 10px;">No completed days yet — first snapshot will be tomorrow at 00:02 ET</div>';
+      return;
+    }
+    const max = Math.max(1, ...days.map(d => d.total_flights || 0));
+    grid.innerHTML = days.map(d => {
+      const pct = Math.max(3, ((d.total_flights || 0) / max) * 100);
+      return `<div class="hist-bar ${d.total_flights ? 'has-data' : ''}" style="height:${pct}%" title="${d.date}: ${d.total_flights || 0} flights"></div>`;
+    }).join('');
+    labels.innerHTML = days.map(d => {
+      const day = d.date.slice(-2);
+      return `<span>${day}</span>`;
+    }).join('');
+    body.innerHTML = [...days].reverse().map(d => `
+      <div class="history-row">
+        <div class="date-col">${d.date}</div>
+        <div class="num">${d.total_flights || 0}</div>
+        <div class="num">$${(d.fa_cost || 0).toFixed(2)}</div>
+        <div class="top-col">${d.top_tail || '—'} ${d.top_tail_count ? '('+d.top_tail_count+'x)' : ''}</div>
+      </div>`).join('');
+  } catch (e) { console.error('loadHistory failed', e); }
+}
+
+async function loadProfiles() {
+  try {
+    const r = await fetch('/api/profiles');
+    const d = await r.json();
+    const body = document.getElementById('profiles-body');
+    const activeBadge = document.getElementById('active-rule');
+    const activeId = (d.active && d.active.rule_id) || null;
+    if (!d.rules || d.rules.length === 0) {
+      body.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 10px; font-size: 12px;">No profiles yet. Add one below to auto-throttle during work hours.</div>';
+    } else {
+      body.innerHTML = d.rules.map(r => `
+        <div class="profile-row ${r.id === activeId ? 'active' : ''}">
+          <span class="pname">${r.name}</span>
+          <span class="ptime">${r.start} → ${r.end}</span>
+          <span class="prr">${r.refresh_rate}</span>
+          <span class="pfm">${r.filter_mode}</span>
+          <button class="watch-x" title="Remove" onclick="removeProfile('${r.id}')">×</button>
+        </div>`).join('');
+    }
+    if (d.active && d.active.source === 'rule') {
+      activeBadge.textContent = `▸ Active rule: "${d.active.rule_name}" (${d.active.refresh_rate} / ${d.active.filter_mode})`;
+    } else {
+      activeBadge.textContent = '▸ No rule active — using manual settings';
+    }
+  } catch (e) { console.error('loadProfiles failed', e); }
+}
+
+async function addProfile() {
+  const name = document.getElementById('prof-name').value.trim() || 'Untitled';
+  const start = document.getElementById('prof-start').value;
+  const end = document.getElementById('prof-end').value;
+  const rr = document.getElementById('prof-rr').value;
+  const fm = document.getElementById('prof-fm').value;
+  try {
+    await fetch(`/api/profiles/add?name=${encodeURIComponent(name)}&start=${start}&end=${end}&refresh_rate=${rr}&filter_mode=${fm}`, { method: 'POST' });
+    document.getElementById('prof-name').value = '';
+    loadProfiles();
+  } catch (e) { alert('Add failed: ' + e.message); }
+}
+
+async function removeProfile(id) {
+  try {
+    await fetch(`/api/profiles/remove?rule_id=${encodeURIComponent(id)}`, { method: 'POST' });
+    loadProfiles();
+  } catch (e) { alert('Remove failed: ' + e.message); }
+}
+
+async function loadWatchList() {
+  try {
+    const r = await fetch('/api/watchlist');
+    const d = await r.json();
+    const body = document.getElementById('watch-list-body');
+    if (!d.tails || d.tails.length === 0) {
+      body.innerHTML = '<div class="watch-empty">No tails on watch list yet</div>';
+      return;
+    }
+    body.innerHTML = d.tails.map(t => `
+      <div class="watch-row">
+        <span class="watch-tail">${t.tail}</span>
+        <span class="watch-note">${t.note || '—'}</span>
+        <button class="watch-x" title="Remove" onclick="removeWatch('${t.tail}')">×</button>
+      </div>`).join('');
+  } catch (e) { console.error('loadWatchList failed', e); }
+}
+async function addWatch() {
+  const tail = document.getElementById('watch-tail-input').value.trim();
+  const note = document.getElementById('watch-note-input').value.trim();
+  if (!tail) return;
+  try {
+    await fetch(`/api/watchlist/add?tail=${encodeURIComponent(tail)}&note=${encodeURIComponent(note)}`, { method: 'POST' });
+    document.getElementById('watch-tail-input').value = '';
+    document.getElementById('watch-note-input').value = '';
+    loadWatchList();
+  } catch (e) { alert('Add failed: ' + e.message); }
+}
+async function removeWatch(tail) {
+  try {
+    await fetch(`/api/watchlist/remove?tail=${encodeURIComponent(tail)}`, { method: 'POST' });
+    loadWatchList();
+  } catch (e) { alert('Remove failed: ' + e.message); }
+}
+async function addCurrentToWatch() {
+  const tail = document.getElementById('current-tail-hint').textContent;
+  if (!tail || tail === '—') return;
+  await fetch(`/api/watchlist/add?tail=${encodeURIComponent(tail)}`, { method: 'POST' });
+  loadWatchList();
+}
+// Submit via Enter key in the tail input
+document.addEventListener('DOMContentLoaded', () => {
+  const t = document.getElementById('watch-tail-input');
+  if (t) t.addEventListener('keydown', e => { if (e.key === 'Enter') addWatch(); });
+  const n = document.getElementById('watch-note-input');
+  if (n) n.addEventListener('keydown', e => { if (e.key === 'Enter') addWatch(); });
+});
+
+async function setRefreshRate(rr) {
+  try {
+    await fetch(`/api/settings?refresh_rate=${rr}`, { method: 'POST' });
+    refresh();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function setFilterMode(fm) {
+  try {
+    await fetch(`/api/settings?filter_mode=${fm}`, { method: 'POST' });
+    refresh();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function doPause(hours) {
+  try {
+    const r = await fetch(`/pause?hours=${hours}`, { method: 'POST' });
+    await r.json();
+    refresh();
+  } catch (e) { alert('Pause failed: ' + e.message); }
+}
+async function doPauseCustom() {
+  const input = document.getElementById('custom-hours');
+  const hours = parseFloat(input.value);
+  if (!hours || hours <= 0 || hours > 24) {
+    alert('Enter a number between 0.1 and 24 hours.');
+    input.focus();
+    return;
+  }
+  await doPause(hours);
+  input.value = '';
+}
+async function doResume() {
+  try {
+    const r = await fetch('/resume', { method: 'POST' });
+    await r.json();
+    refresh();
+  } catch (e) { alert('Resume failed: ' + e.message); }
+}
+
+async function refreshSlow() {
+  // Lower-frequency data: feed, types, heatmap, cost. Polled every 30s instead of 5s.
+  try {
+    const [recent, types, heat, cost] = await Promise.all([
+      fetch('/api/recent?limit=30').then(r => r.json()),
+      fetch('/api/types?limit=12').then(r => r.json()),
+      fetch('/api/heatmap').then(r => r.json()),
+      fetch('/api/cost').then(r => r.json()),
+    ]);
+
+    // Cost monitor
+    if (cost) {
+      document.getElementById('cost-month-label').textContent = cost.month_label || 'this month';
+      const cn = document.getElementById('cost-now');
+      cn.textContent = '$' + (cost.month_cost ?? 0).toFixed(2);
+      cn.classList.remove('warn', 'danger');
+      if (cost.projected_month_cost >= 100) cn.classList.add('danger');
+      else if (cost.projected_month_cost >= 50) cn.classList.add('warn');
+      document.getElementById('cost-today').textContent = '$' + (cost.today_cost ?? 0).toFixed(2);
+      document.getElementById('cost-projected').textContent = '$' + (cost.projected_month_cost ?? 0).toFixed(2);
+      const br = document.getElementById('cost-breakdown');
+      if (cost.by_endpoint && cost.by_endpoint.length) {
+        br.innerHTML = cost.by_endpoint.map(e => `
+          <div class="cost-row">
+            <span class="ep">${e.endpoint}</span>
+            <span class="ct">${e.calls}</span>
+            <span class="$$">$${e.cost.toFixed(2)}</span>
+          </div>`).join('');
+      } else {
+        br.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 8px 0; font-size: 11px;">no calls recorded yet this month</div>';
+      }
+    }
+
+    // Activity feed
+    const feed = document.getElementById('feed');
+    if (recent.sightings && recent.sightings.length) {
+      const localFmt = ts => {
+        try { return new Date(ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: false}); }
+        catch (e) { return '--:--'; }
+      };
+      const airport = (window._airportCode || '').toUpperCase();
+      feed.innerHTML = recent.sightings.map(s => {
+        const dest = (s.destination_iata || '').toUpperCase();
+        const orig = (s.origin_iata || '').toUpperCase();
+        const isArr = dest === airport;
+        const dir = isArr ? 'ARR' : (orig === airport ? 'DEP' : '');
+        return `
+          <div class="feed-row">
+            <span class="feed-time">${localFmt(s.seen_at)}</span>
+            <span class="feed-flight">${s.flight_number || s.callsign || '?'} <span class="feed-dir ${dir==='DEP'?'dep':''}">${dir}</span></span>
+            <span class="feed-route">${orig || '?'} → ${dest || '?'}</span>
+            <span class="feed-tail">${s.registration || ''}</span>
+          </div>`;
+      }).join('');
+    } else {
+      feed.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 18px 0;">No sightings yet</div>';
+    }
+
+    // Types
+    const tb = document.getElementById('types-body');
+    if (types.types && types.types.length) {
+      tb.innerHTML = types.types.map(t => `
+        <tr>
+          <td class="tail">${t.name || t.type}</td>
+          <td class="cnt">${t.n}x</td>
+        </tr>`).join('');
+    } else {
+      tb.innerHTML = '<tr><td colspan="2" style="color: var(--text-dim); text-align: center; padding: 18px 0;">No data yet</td></tr>';
+    }
+
+    // Heatmap
+    const heatData = heat.hourly_counts || new Array(24).fill(0);
+    const max = Math.max(1, ...heatData);
+    const nowHour = new Date().getHours();
+    document.getElementById('heat-wrap').innerHTML = heatData.map((n, h) => {
+      const pct = Math.max(2, (n / max) * 100);
+      const cls = (n > 0 ? 'has-data ' : '') + (h === nowHour ? 'current-hour' : '');
+      return `<div class="heat-bar ${cls}" style="height:${pct}%" title="${h}:00 — ${n} flights"></div>`;
+    }).join('');
+    document.getElementById('heat-labels').innerHTML = [...Array(24).keys()].map(h =>
+      `<span>${h % 6 === 0 ? h : ''}</span>`
+    ).join('');
+
+  } catch (e) {
+    console.error('refreshSlow failed', e);
+  }
+}
+
+refresh();
+refreshSlow();
+loadWatchList();
+loadHistory();
+loadProfiles();
+loadPotus();
+loadHelicopters();
+startCountdown();
+startLastPushTicker();
+setInterval(refresh, 5000);
+setInterval(refreshSlow, 30000);
+setInterval(loadWatchList, 30000);
+setInterval(loadHistory, 60000);
+setInterval(loadProfiles, 30000);
+setInterval(loadPotus, 10000);  // 10s — fastest refresh on dashboard since it's time-sensitive
+setInterval(loadHelicopters, 30000);
+</script>
+</body>
+</html>

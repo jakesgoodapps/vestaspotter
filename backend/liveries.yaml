@@ -1,0 +1,38 @@
+# Custom liveries keyed by tail number (uppercase, no spaces or dashes).
+# When a tail flies overhead, this file is checked; if matched, the value
+# replaces the aircraft type on row 5 with yellow bookends.
+#
+# Seed list — extend this with liveries you spot at your local airport. Tip:
+# dropping this file and rebuilding the container is enough; no schema change.
+#
+# Sources to harvest:
+#   - airlinerlist.com / planespotters.net livery galleries
+#   - Wikipedia "{airline} fleet" pages list heritage liveries
+#   - Local plane-spotter Reddit / Discord communities
+
+N905NN: "AA ASTROJET RETRO"
+N916NN: "AA TWA HERITAGE"
+N917NN: "AA AIR CAL HERITAGE"
+N919NN: "AA PIEDMONT HERITAGE"
+N915NN: "AA RENO AIR HERITAGE"
+
+# Delta heritage / specials
+N177DZ: "DL BREAST CANCER PINK"
+N665DN: "DL 80 YRS LIVERY"
+
+# United heritage
+N76502: "UA CALIFORNIA"
+N77518: "UA FRIEND SHIP"
+
+# JetBlue specials
+N703JB: "B6 BLUEBERRIES"
+N779JB: "B6 BARCODE"
+
+# Southwest specials
+N8645A: "WN ILLINOIS ONE"
+N918WN: "WN COLORADO ONE"
+N230WN: "WN MARYLAND ONE"
+
+# Frontier animal-tail callouts — too many to list, but a few notable:
+N701FR: "F9 LARRY THE LYNX"
+N709FR: "F9 GRIZWALD THE BEAR"

@@ -1,0 +1,18 @@
+# Copy this to docker-compose.override.yml on your production server
+# if you're running VestaSpotter behind a reverse proxy (Traefik, Caddy, etc.)
+# on a shared Docker network.
+#
+# docker-compose.override.yml is git-ignored, so your production settings
+# won't get overwritten by `git pull`.
+
+services:
+  backend:
+    container_name: vs-backend          # match your existing container naming
+    ports:
+      - "127.0.0.1:8011:8011"           # bind to localhost only; reverse proxy fronts it
+    networks:
+      - web                              # join your reverse-proxy network
+
+networks:
+  web:
+    external: true

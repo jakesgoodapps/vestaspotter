@@ -1,0 +1,108 @@
+# Short display names keyed by ICAO type code, used to replace FlightAware's
+# verbose default names that overflow our 22-cell row.
+#
+# Common culprits this fixes:
+#   CRJ7 / CRJ9 — FA returns "Canadair Regional Jet" (21 chars, gets truncated)
+#   E170 / E175 — FA's name varies, this normalizes
+#
+# Rule: if a type isn't in this file, we fall back to FA's aircraft_name.
+# If THAT also overflows, the renderer truncates to fit.
+
+# CRJ family (Bombardier — formerly Canadair)
+CRJ1: "BOMBARDIER CRJ-100"
+CRJ2: "BOMBARDIER CRJ-200"
+CRJ7: "BOMBARDIER CRJ-700"
+CRJ9: "BOMBARDIER CRJ-900"
+CRJX: "BOMBARDIER CRJ-1000"
+
+# Airbus A220 family (ICAO still uses Bombardier CSeries codes — BCS1/BCS3)
+BCS1: "AIRBUS A220-100"
+BCS3: "AIRBUS A220-300"
+
+# Embraer regional + mainline
+E135: "EMBRAER ERJ-135"
+E145: "EMBRAER ERJ-145"
+E170: "EMBRAER 170"
+E75L: "EMBRAER 175"
+E75S: "EMBRAER 175"
+E175: "EMBRAER 175"
+E190: "EMBRAER 190"
+E195: "EMBRAER 195"
+E290: "EMBRAER E190-E2"
+E295: "EMBRAER E195-E2"
+
+# Boeing narrowbody (mostly already-short FA names; making consistent)
+B737: "BOEING 737-700"
+B738: "BOEING 737-800"
+B739: "BOEING 737-900"
+B38M: "BOEING 737 MAX 8"
+B39M: "BOEING 737 MAX 9"
+B752: "BOEING 757-200"
+B753: "BOEING 757-300"
+
+# Boeing widebody
+B763: "BOEING 767-300"
+B764: "BOEING 767-400"
+B772: "BOEING 777-200"
+B77L: "BOEING 777-200LR"
+B77W: "BOEING 777-300ER"
+B788: "BOEING 787-8"
+B789: "BOEING 787-9"
+B78X: "BOEING 787-10"
+B744: "BOEING 747-400"
+B748: "BOEING 747-8"
+
+# Airbus narrowbody
+A318: "AIRBUS A318"
+A319: "AIRBUS A319"
+A320: "AIRBUS A320"
+A321: "AIRBUS A321"
+A20N: "AIRBUS A320NEO"
+A21N: "AIRBUS A321NEO"
+
+# Airbus widebody
+A332: "AIRBUS A330-200"
+A333: "AIRBUS A330-300"
+A339: "AIRBUS A330-900"
+A359: "AIRBUS A350-900"
+A35K: "AIRBUS A350-1000"
+A388: "AIRBUS A380"
+
+# Private / corporate (DCA gets a lot)
+GLF4: "GULFSTREAM G450"
+GLF5: "GULFSTREAM G550"
+GLF6: "GULFSTREAM G650"
+GL7T: "GULFSTREAM G700"
+G280: "GULFSTREAM G280"
+F2TH: "DASSAULT FALCON 2000"
+F900: "DASSAULT FALCON 900"
+F8X: "DASSAULT FALCON 8X"
+CL30: "BOMBARDIER CHALLENGER 300"
+CL35: "BOMBARDIER CHALLENGER 350"
+CL60: "BOMBARDIER CHALLENGER 600"
+C56X: "CESSNA CITATION XLS"
+C68A: "CESSNA CITATION LATITUDE"
+C700: "CESSNA CITATION LONGITUDE"
+LJ45: "LEARJET 45"
+LJ60: "LEARJET 60"
+LJ75: "LEARJET 75"
+
+# Helicopters (mostly seen because of the POTUS detector pulling in low-alt helos)
+# Eurocopter was renamed Airbus Helicopters in 2014; using modern H-series names.
+EC35: "AIRBUS H135"          # formerly Eurocopter EC135
+EC45: "AIRBUS H145"          # formerly Eurocopter EC145
+AS50: "AIRBUS H125"          # formerly AS350 Écureuil/Squirrel
+B412: "BELL 412"             # the USPP type Jake confirmed
+B429: "BELL 429"
+B06:  "BELL 206"
+
+# Military (often the bare ICAO is unhelpful)
+C17:  "MILITARY C-17"
+C5:   "MILITARY C-5"
+C130: "MILITARY C-130"
+KC10: "MILITARY KC-10"
+KC46: "MILITARY KC-46"
+KC35: "MILITARY KC-135"
+E3CF: "MILITARY E-3 SENTRY"
+E4:   "MILITARY E-4B"
+VC25: "AIR FORCE ONE"

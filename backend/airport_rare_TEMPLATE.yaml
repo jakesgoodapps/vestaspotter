@@ -1,0 +1,99 @@
+# =============================================================================
+#   airport_rare_TEMPLATE.yaml — starter file for your airport's rare list
+#
+#   HOW TO USE:
+#   1. Copy this file to airport_rare_{YOUR_AIRPORT_CODE}.yaml
+#      (e.g., airport_rare_JFK.yaml, airport_rare_LAX.yaml)
+#   2. Uncomment the rows you want to enable for YOUR airport
+#   3. Restart the container: docker compose up -d --build
+#
+#   See docs/CUSTOMIZATION.md for the full guide on what's worth flagging.
+#
+#   FORMAT: ICAO type code (4 chars) -> display name shown on board
+#   You can look up ICAO codes at en.wikipedia.org/wiki/List_of_aircraft_type_designators
+#
+#   NOTE: aircraft types in the GLOBAL rare list (enrichment.py RARE_TYPES) —
+#   A380, 747, 777, 787, A330, A350, MD-11, Concorde — already trigger the
+#   rare flag everywhere. Don't duplicate them here.
+# =============================================================================
+
+
+# ---- Mainline narrowbody-but-notable ----
+# Uncomment if these are rare AT YOUR airport. They're common at major hubs.
+# B752: "BOEING 757-200"            # Boeing 757-200
+# B753: "BOEING 757-300"            # Boeing 757-300 (very rare)
+# A21N: "AIRBUS A321NEO"            # A321neo (becoming common — only flag if your airport doesn't see them often)
+# B38M: "BOEING 737 MAX 8"          # MAX 8 (skip — very common at most US airports)
+# B39M: "BOEING 737 MAX 9"          # MAX 9 (skip — very common)
+
+
+# ---- Widebodies that AREN'T already in the global rare list ----
+# Most widebodies are globally rare. Listed here only if you want to override.
+# B763: "BOEING 767-300"            # Mostly cargo + diversions
+# B764: "BOEING 767-400"            # Rare passenger config
+# A332: "AIRBUS A330-200"           # Add only if rare at your airport (LAX/JFK see them regularly)
+# A333: "AIRBUS A330-300"           # Same
+
+
+# ---- Military / Government ----
+# Almost always rare unless you're next to a military airbase (KADW, KBOS Logan
+# is adjacent to Hanscom AFB activity, KSEA is adjacent to McChord AFB, etc.)
+# C17:  "MILITARY C-17"             # Heavy lift — almost always cool to see
+# C5:   "MILITARY C-5"              # Even cooler
+# C130: "MILITARY C-130"            # Common at bases, rare at civilian airports
+# KC10: "MILITARY KC-10"            # Tanker (DC-10 derivative)
+# KC46: "MILITARY KC-46"            # Newer tanker
+# KC35: "MILITARY KC-135"           # Cold-war tanker, still in service
+# E3CF: "MILITARY E-3 SENTRY"       # AWACS radar plane
+# E4:   "MILITARY E-4B"             # "Nightwatch" / doomsday plane — ultra rare
+# E6:   "MILITARY E-6 MERCURY"      # Navy doomsday equivalent
+# B52:  "MILITARY B-52"             # B-52 Stratofortress
+# B1:   "MILITARY B-1B LANCER"      # B-1B bomber
+# B2:   "MILITARY B-2 SPIRIT"       # B-2 stealth bomber — extremely rare
+# F16:  "MILITARY F-16"             # Fighter
+# F22:  "MILITARY F-22 RAPTOR"      # Stealth fighter
+# F35:  "MILITARY F-35 LIGHTNING"   # Stealth fighter
+# C40:  "MILITARY C-40 CLIPPER"     # VIP 737 (think senate/cabinet transport)
+# VC25: "AIR FORCE ONE"             # 747 in presidential config — drop everything
+
+
+# ---- Other notables ----
+# DC10: "DOUGLAS DC-10"             # Mostly retired; if you see one, flag it
+# MD83: "MCDONNELL DOUGLAS MD-83"   # Mostly retired
+# A124: "ANTONOV AN-124"            # Russian cargo heavy-lifter — extremely rare in US
+# A225: "ANTONOV AN-225"            # Mostly destroyed; if you somehow see one, the world has changed
+# IL62: "ILYUSHIN IL-62"            # Russian — never in US civilian airspace
+# CONC: "CONCORDE"                  # Already in global rare list; mostly retired anyway
+
+
+# ---- Corporate / private jets ----
+# These are COMMON at major airports near corporate/government centers
+# (DCA, IAD, BOS, TEB, MIA, SAN, LAS, SFO/SJC, PHX). Only flag if you're
+# AT A LESS-CORPORATE AIRPORT where seeing one is unusual.
+# GLF4: "GULFSTREAM G450"
+# GLF5: "GULFSTREAM G550"
+# GLF6: "GULFSTREAM G650"
+# GL7T: "GULFSTREAM G700"
+# F2TH: "DASSAULT FALCON 2000"
+# F900: "DASSAULT FALCON 900"
+# F8X:  "DASSAULT FALCON 8X"
+# CL35: "BOMBARDIER CHALLENGER 350"
+# GLEX: "BOMBARDIER GLOBAL EXPRESS"
+
+
+# ---- Helicopters (rare from a "this is an airliner spotting board" perspective) ----
+# Uncomment if you want helicopters to trigger the rare flag.
+# Useful for spotters near hospital pads, USPP/military patrol areas, NYC harbor, etc.
+# B412: "BELL 412"                   # US Park Police uses these around DC
+# B429: "BELL 429"                   # News helos, medevac
+# AS50: "AIRBUS H125"                # Common medevac / utility
+
+
+# ---- Vintage / classic aircraft (extremely rare anywhere) ----
+# Most have been retired or are now museum pieces. Flag them anyway — it's
+# a special day when one flies past.
+# DC3:  "DOUGLAS DC-3"               # 1930s prop — usually airshow / private only
+# DC6:  "DOUGLAS DC-6"               # 1940s 4-engine prop
+# L101: "LOCKHEED L-1011 TRISTAR"    # Mostly retired
+# B707: "BOEING 707"                 # Mostly retired; some military variants still flying
+# B722: "BOEING 727-200"             # Mostly retired
