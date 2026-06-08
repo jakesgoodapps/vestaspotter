@@ -6,8 +6,8 @@
 ## What this project is
 
 A self-hosted FastAPI service that detects aircraft passing a configured
-observer location (an apartment window), enriches them with FlightAware
-metadata, and renders them onto a [Vestaboard](https://www.vestaboard.com/)
+observer location (apartment window, house deck, backyard, rooftop, etc.),
+enriches them with FlightAware metadata, and renders them onto a [Vestaboard](https://www.vestaboard.com/)
 split-flap display via its Cloud Read/Write API. Plus a web dashboard for
 remote control, statistics, history, and (optionally for DC users) a POTUS
 movement detector.
@@ -121,7 +121,7 @@ User-facing dashboard at `/` (full controls) and `/live` (read-only guest view).
 forward `PREDICT_SECONDS_AHEAD` seconds and check if the *projected* position
 is in the FOV. If so, push NOW, before the plane is actually visible. With
 Vestaboard's ~10s flap-settle time + ~5s push latency, you want the board
-fully rendered by the time you look out the window. Tunable per install.
+fully rendered by the time you look up at the sky. Tunable per install.
 
 **No-traffic = no push.** When the FOV is empty, the board stays on whatever
 was last shown. We never push a blank/"no traffic" frame — that just wastes

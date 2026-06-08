@@ -1,14 +1,16 @@
 # VestaSpotter
 
-> Watch real airplanes fly past your apartment on your real Vestaboard.
+> Watch the airplanes flying overhead, live on your real Vestaboard.
 
-VestaSpotter is a self-hosted service that turns your [Vestaboard](https://www.vestaboard.com/) into a live split-flap aircraft tracker for the planes passing your window. Point it at your apartment's coordinates and your nearest airport, and the board flips to show you exactly what's overhead in real time — airline, flight number, route, aircraft type, tail number, sighting count, and a status footer.
+VestaSpotter is a self-hosted service that turns your [Vestaboard](https://www.vestaboard.com/) into a live split-flap aircraft tracker for the planes passing overhead. Point it at your viewing location's coordinates and your nearest airport, and the board flips to show you exactly what's up there in real time — airline, flight number, route, aircraft type, tail number, sighting count, and a status footer.
+
+Works anywhere you'd want to spot airplanes: apartment window, house deck, backyard, rooftop, RV, lake cabin, office. Detection geometry (radius, altitude bounds, field of view) is fully configurable for everything from a single-window near-airport view to a 360° rural open-sky setup.
 
 It also includes a web dashboard for remote control + statistics, daily history, watch lists, custom-livery callouts, and (if you live near DC) a POTUS movement detector that catches the Park Police helicopter pattern preceding presidential helicopter departures.
 
 ## What it looks like
 
-The board, rendering a real flight passing the window:
+The board, rendering a real flight passing overhead:
 
 ```
 🟦UA 1234    IAD -- DCA
@@ -72,7 +74,7 @@ Optional but recommended: a separate domain or subdomain pointed at your server 
 | [FlightAware AeroAPI](https://flightaware.com/commercial/aeroapi/) | Free tier ($5/mo credit), then pay-as-you-go | Flight enrichment (route, aircraft type, tail, delay) |
 | [OpenSky Network](https://opensky-network.org/) | Free | Real-time aircraft positions |
 
-Expected FA cost on default settings: **~$10-15/month** for a single-apartment install. The dashboard's built-in cost monitor will warn you if you trend higher.
+Expected FA cost on default settings: **~$10-15/month** for a typical single-location install. The dashboard's built-in cost monitor will warn you if you trend higher.
 
 ## Quick start (10 min)
 
@@ -92,7 +94,7 @@ docker compose up -d --build
 open http://localhost:8011/
 ```
 
-Leave `DRY_RUN=true` for the first session. Watch the dashboard's board preview match what you'd expect from looking out your window. When confident, flip `DRY_RUN=false` in `.env` and restart.
+Leave `DRY_RUN=true` for the first session. Watch the dashboard's board preview match what you'd expect from looking up at the sky. When confident, flip `DRY_RUN=false` in `.env` and restart.
 
 ### Option B — Mac Mini / Pi running 24/7
 
@@ -114,10 +116,11 @@ See `.env.example` for the full annotated list. Key vars:
 | `DRY_RUN` | `true` = log renders without touching the physical board. Use this first. |
 | `FLIGHTAWARE_API_KEY` | Personal-tier AeroAPI key |
 | `OPENSKY_CLIENT_ID/SECRET` | Optional but recommended — 10× the rate limit |
-| `LATITUDE` / `LONGITUDE` | YOUR window's coordinates |
-| `ORIENTATION_DEG` | Compass bearing your window faces (0=N, 90=E, 180=S, 270=W) |
-| `FIELD_OF_VIEW_DEG` | Angular width of your window's view (120° default) |
-| `RADIUS_NM` / `MAX_ALTITUDE_FT` / `MIN_ALTITUDE_FT` | Detection bounds |
+| `LATITUDE` / `LONGITUDE` | Your viewing spot's coordinates |
+| `ORIENTATION_DEG` | Compass bearing your viewing direction faces (0=N, 90=E, 180=S, 270=W). Irrelevant if `FIELD_OF_VIEW_DEG=360` |
+| `FIELD_OF_VIEW_DEG` | Angular width of your visible sky. 120 = single window, 180 = wide window/balcony, 270 = corner unit, 360 = open sky (yard/deck/rooftop) |
+| `RADIUS_NM` | Detection radius. 3-5 near a major airport, 10-20 further out, 50+ for rural cruise-traffic spotting |
+| `MAX_ALTITUDE_FT` / `MIN_ALTITUDE_FT` | Altitude band. Defaults (200-8000) work near-airport; bump max higher to catch cruise traffic, bump min higher if you don't want ground-level clutter |
 | `LOCAL_TIMEZONE` | IANA name for "today" math (e.g., `America/New_York`) |
 | `AIRPORT_CODE` | Nearest IATA airport for arr/dep classification + footer |
 | `PREDICT_SECONDS_AHEAD` | Trajectory lookahead. Higher = more lead time, more false positives. 100 is a good default. |

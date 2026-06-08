@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """VestaSpotter interactive setup wizard.
 
-Walks you through configuring the app for your apartment + window + airport,
-then writes a `.env` file you can either commit to your container env or feed
-to docker-compose directly.
+Walks you through configuring the app for your viewing location, direction
+of view, and nearest airport, then writes a `.env` file you can either commit
+to your container env or feed to docker-compose directly.
 
 Re-run any time to update individual settings — existing values become defaults.
 
@@ -201,7 +201,7 @@ def main():
     # ---- FlightAware ----
     print(cyan("\n[2/7] FlightAware"))
     print(dim("    Sign up at flightaware.com/commercial/aeroapi/ for a personal key."))
-    print(dim("    $5/mo free credit covers a single-apartment install easily."))
+    print(dim("    $5/mo free credit covers a typical install easily."))
     values["FLIGHTAWARE_API_KEY"] = prompt("FlightAware AeroAPI key", existing.get("FLIGHTAWARE_API_KEY"))
 
     # ---- OpenSky ----
@@ -222,7 +222,8 @@ def main():
 
     # ---- Observer location ----
     print(cyan("\n[4/7] Your location"))
-    print(dim("    Coords of YOUR window. You can paste an address or enter lat/lon directly."))
+    print(dim("    Coords of your viewing spot (apartment, house, deck, yard, etc)."))
+    print(dim("    Paste an address or enter lat/lon directly."))
     if existing.get("LATITUDE") and existing.get("LONGITUDE"):
         print(dim(f"    Current: {existing['LATITUDE']}, {existing['LONGITUDE']}"))
     use_addr = prompt_bool("Look up by street address (uses OpenStreetMap)?", not existing.get("LATITUDE"))
@@ -247,26 +248,35 @@ def main():
         values["LATITUDE"] = prompt("Latitude", existing.get("LATITUDE"), validate_lat)
         values["LONGITUDE"] = prompt("Longitude", existing.get("LONGITUDE"), validate_lon)
 
-    # ---- Window orientation ----
-    print(cyan("\n[5/7] Window orientation"))
-    print(dim("    Compass bearing your window faces. Open a compass app on your phone,"))
-    print(dim("    point it out the window, read the degrees. 0=N, 90=E, 180=S, 270=W."))
+    # ---- Viewing direction + detection geometry ----
+    print(cyan("\n[5/7] Viewing direction + sky geometry"))
+    print(dim("    Compass bearing your viewing direction faces. Use a phone compass app:"))
+    print(dim("    point it in your direction of view, read the degrees. 0=N, 90=E, 180=S, 270=W."))
+    print(dim("    (If you have a 360° open view — yard, deck, rooftop — bearing doesn't matter; set FOV to 360 below.)"))
     values["ORIENTATION_DEG"] = prompt("Bearing (degrees)", existing.get("ORIENTATION_DEG", "180"), validate_degree)
+    print(dim("    Field of view (angular width of your visible sky):"))
+    print(dim("      120 = single window | 180 = wide window/balcony | 270 = corner unit | 360 = open sky"))
     values["FIELD_OF_VIEW_DEG"] = prompt(
-        "Field of view width (degrees, default 120 = roughly what you can see through one window)",
+        "Field of view width (degrees)",
         existing.get("FIELD_OF_VIEW_DEG", "120"),
         validate_degree,
     )
+    print(dim("    Detection radius (nautical miles):"))
+    print(dim("      3-5 near a major airport | 10-20 further out | 50+ for rural cruise spotting"))
     values["RADIUS_NM"] = prompt(
-        "Detection radius in nautical miles (3-10 typical)",
+        "Detection radius (nm)",
         existing.get("RADIUS_NM", "5.0"),
     )
+    print(dim("    Min altitude (ft) — ignore planes flying lower than this:"))
+    print(dim("      200 near major airport | 1000 only airborne | 10000+ rural cruise-only"))
     values["MIN_ALTITUDE_FT"] = prompt(
-        "Minimum altitude to consider (excludes ground/just-landed)",
+        "Min altitude (ft)",
         existing.get("MIN_ALTITUDE_FT", "200"),
     )
+    print(dim("    Max altitude (ft) — ignore planes flying higher than this:"))
+    print(dim("      8000 near-airport | 25000 catch climbing departures | 45000 catch everything"))
     values["MAX_ALTITUDE_FT"] = prompt(
-        "Maximum altitude (excludes high cruisers)",
+        "Max altitude (ft)",
         existing.get("MAX_ALTITUDE_FT", "8000"),
     )
 
@@ -302,7 +312,7 @@ def main():
         existing.get("ENABLE_POTUS_DETECTOR", "false").lower() == "true",
     ) else "false"
 
-    print(dim("    Quiet hours = window where polling/pushing pause (saves API budget overnight)."))
+    print(dim("    Quiet hours = time range where polling/pushing pause (saves API budget overnight)."))
     values["QUIET_HOURS_START"] = prompt(
         "Quiet hours start (HH:MM, 24-hour local)",
         existing.get("QUIET_HOURS_START", "00:30"),

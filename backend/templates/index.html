@@ -600,8 +600,8 @@ async function refresh() {
     const rf = d.recent_flow;
     if (rf && rf.sample_size >= 2) {
       const sample = `(${rf.arr} arr / ${rf.dep} dep of last ${rf.sample_size})`;
-      if (rf.flow === 'north') flow = `NORTH (rwy 1) · takeoffs past your window ${sample}`;
-      else if (rf.flow === 'south') flow = `SOUTH (rwy 19) · arrivals past your window ${sample}`;
+      if (rf.flow === 'north') flow = `NORTH (rwy 1) · takeoffs heading your way ${sample}`;
+      else if (rf.flow === 'south') flow = `SOUTH (rwy 19) · arrivals heading your way ${sample}`;
       else if (rf.flow === 'mixed') flow = `transitioning · runway just switched ${sample}`;
     }
     document.getElementById('flow-tag').textContent = flow;
