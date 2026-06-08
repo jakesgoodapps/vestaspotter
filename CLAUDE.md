@@ -148,8 +148,24 @@ require any specific tail/callsign.
 
 ## Persistence layout
 
+Every persistence module resolves its directory the same way:
+
+```python
+_DATA_DIR = Path(os.environ.get("VESTASPOTTER_DATA_DIR") or Path(__file__).resolve().parent / "data")
 ```
-data/
+
+So the on-disk location depends on how you're running the app:
+
+| How you run it | Resolved data dir |
+|---|---|
+| `docker compose up` (default) | `/app/data` inside the container → `./data/` on host (per the compose volume mount) |
+| Direct `python -m backend.main` with no env var | `backend/data/` (fallback) |
+| Anywhere with `VESTASPOTTER_DATA_DIR=/wherever` set | `/wherever/` |
+
+The directory is gitignored so you won't see it in a fresh clone — it's created on first write. Contents:
+
+```
+{data_dir}/
 ├── sightings.db              # every aircraft we've pushed (or attempted to)
 ├── airport_movements.db      # DORMANT — see ⚠️ in airport_movements.py
 ├── registry.db               # icao24 → year_built cache
