@@ -12,7 +12,8 @@ body:
     attributes:
       label: What problem does this solve?
       description: What are you trying to do that the current version makes hard or impossible?
-      placeholder: e.g. "I'd love to see weather conditions on the board when no flights are overhead."
+      placeholder: |
+        e.g. I'd love to see weather conditions on the board when no flights are overhead.
     validations:
       required: true
 
@@ -21,7 +22,8 @@ body:
     attributes:
       label: Proposed solution
       description: How might it work? Rough sketch is fine — doesn't need to be fully designed.
-      placeholder: e.g. "When the no-traffic state lasts more than N minutes, show a weather frame: temp, conditions, wind. Reuses the airport's METAR which we sort of already have."
+      placeholder: |
+        e.g. When the no-traffic state lasts more than N minutes, show a weather frame (temp, conditions, wind). Reuses the airport's METAR which we sort of already have.
     validations:
       required: true
 
