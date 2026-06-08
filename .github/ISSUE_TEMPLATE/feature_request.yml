@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest an enhancement or new capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea! The more concrete you can be about the use case, the better.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that the current version makes hard or impossible?
+      placeholder: e.g. "I'd love to see weather conditions on the board when no flights are overhead."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How might it work? Rough sketch is fine — doesn't need to be fully designed.
+      placeholder: e.g. "When the no-traffic state lasts more than N minutes, show a weather frame: temp, conditions, wind. Reuses the airport's METAR which we sort of already have."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything else you've tried or thought about?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Is this something you'd be willing to contribute?
+      options:
+        - "Yes, I'd like to send a PR"
+        - "Maybe, with guidance"
+        - "No, just suggesting"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, links to similar implementations elsewhere, etc.

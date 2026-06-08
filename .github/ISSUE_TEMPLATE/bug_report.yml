@@ -1,0 +1,75 @@
+name: Bug report
+description: Something isn't working as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. The more concrete you can be, the faster I can help.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect to see, what did you see instead?
+      placeholder: e.g. "I set FOV to 360 expecting all overhead aircraft to be detected; only south-facing ones appeared on the board."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimum sequence of actions to trigger the bug.
+      placeholder: |
+        1. Set FIELD_OF_VIEW_DEG=360 in .env
+        2. docker compose up -d
+        3. Wait for an aircraft to fly directly north
+        4. Observe board does not update
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: VestaSpotter version / commit
+      description: Run `git rev-parse --short HEAD` in your install directory, or note the release tag.
+      placeholder: e.g. v0.1.0 or 691d062
+
+  - type: dropdown
+    id: how-running
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker Compose (default)
+        - Direct Python (no Docker)
+        - Other (describe in additional context)
+    validations:
+      required: true
+
+  - type: textarea
+    id: env-snippet
+    attributes:
+      label: Relevant config (.env values)
+      description: Paste relevant lines from your .env. **DO NOT INCLUDE API KEYS** — just the geometry/airport settings.
+      render: shell
+      placeholder: |
+        LATITUDE=40.6413
+        LONGITUDE=-73.7781
+        ORIENTATION_DEG=180
+        FIELD_OF_VIEW_DEG=120
+        RADIUS_NM=5
+        AIRPORT_CODE=JFK
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `docker logs vestaspotter --tail 100` (or equivalent). Redact any API keys before pasting.
+      render: shell
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that might help — screenshots of the dashboard, recent changes you made, etc.
