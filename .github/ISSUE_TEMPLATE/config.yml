@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/jakesgoodapps/vestaspotter/blob/main/docs/CUSTOMIZATION.md
     about: How to customize your install via YAML files — usually answers most setup questions.
   - name: Commercial license inquiry
-    url: mailto:jake@jakesgoodapps.com?subject=VestaSpotter%20commercial%20license%20inquiry
-    about: Hotels, restaurants, museums, aviation venues, or other for-profit deployments.
+    url: https://vestaspotter.jakesgoodapps.com/#support
+    about: Hotels, restaurants, museums, aviation venues, or other for-profit deployments — see "For venues & businesses" on the marketing site.
