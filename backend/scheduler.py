@@ -16,7 +16,7 @@ from datetime import datetime, time as dtime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from . import airport_movements, board_state, daily_history, pause_state, potus_detector, potus_schedule, scheduled_profiles, settings_state, watch_list
+from . import board_state, daily_history, pause_state, potus_detector, potus_schedule, scheduled_profiles, settings_state, watch_list
 from .config import settings
 from .data_pipeline import to_aircraft_view, to_airport_view
 from .enrichment import FlightEnricher
@@ -264,34 +264,6 @@ async def start_daily_snapshot_loop(airport_code: str) -> None:
                 print(f"daily snapshot wrote {yesterday}: {snap['total_flights']} flights")
         except Exception as e:
             print(f"daily snapshot failed: {e}")
-
-
-async def start_airport_ingest_loop(
-    enricher: FlightEnricher,
-    airport_code: str,
-    interval_seconds: int,
-    initial_delay_seconds: int = 30,
-) -> None:
-    """Background loop refreshing the local airport_movements DB. Runs forever.
-
-    Initial delay protects against repeated container restarts hitting FA's
-    per-minute rate-limit window with the same burst of paginated calls.
-    """
-    print(
-        f"airport ingest scheduled for {airport_code} — first run in "
-        f"{initial_delay_seconds}s, then every {interval_seconds}s"
-    )
-    await asyncio.sleep(initial_delay_seconds)
-    while True:
-        try:
-            if is_quiet_hours():
-                print(f"airport ingest skipped (quiet hours)")
-            else:
-                n_arr, n_dep = await airport_movements.ingest_today(enricher, airport_code)
-                print(f"airport ingest {airport_code}: arrivals={n_arr} departures={n_dep}")
-        except Exception as e:
-            print(f"airport ingest failed: {e}")
-        await asyncio.sleep(interval_seconds)
 
 
 async def _push_potus_board(

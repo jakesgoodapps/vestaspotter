@@ -82,7 +82,7 @@ VestaboardClient.push (vestaboard.py)
 | `pause_state.py` | Pause-with-auto-resume state persisted to JSON |
 | `watch_list.py` | VIP tail whitelist (bypasses throttle + filter) persisted to JSON |
 | `board_state.py` | Last-pushed frame persistence (survives container restart) |
-| `airport_movements.py` | DISABLED — paginated FA arrivals/departures. Keep as dormant code. |
+| `airport_movements.py` | **DORMANT** — paginated FA arrivals/departures. Caused the $750 incident; preserved with a ⚠️ banner as a cautionary reference. Nothing imports it. |
 | `potus_detector.py` | Helicopter orbital-pattern state machine (opt-in via ENABLE_POTUS_DETECTOR) |
 | `potus_schedule.py` | factba.se POTUS calendar fetch + lookup (paired with potus_detector) |
 | `templates/index.html` | Single-file dashboard with inline CSS + JS |
@@ -167,7 +167,6 @@ The directory is gitignored so you won't see it in a fresh clone — it's create
 ```
 {data_dir}/
 ├── sightings.db              # every aircraft we've pushed (or attempted to)
-├── airport_movements.db      # DORMANT — see ⚠️ in airport_movements.py
 ├── registry.db               # icao24 → year_built cache
 ├── fa_usage.db               # one row per FA API call
 ├── daily_history.db          # end-of-day snapshots

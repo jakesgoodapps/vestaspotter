@@ -81,10 +81,6 @@ async def lifespan(app: FastAPI):
     potus_schedule_task = asyncio.create_task(
         start_potus_schedule_refresh_loop()
     )
-    # NOTE: airport_movements ingest DISABLED — see the $750-bill incident in
-    # June 2026. The /flights/{arrivals,departures} paginated endpoints cost
-    # $1-2 per call on FA personal tier; our 30-min ingest cycles with retries
-    # and backfill mode burned through ~280 calls in 5 hours.
     yield
     for t in (poll_task, snapshot_task, potus_schedule_task):
         t.cancel()
@@ -359,14 +355,6 @@ async def force_push():
 async def sightings(limit: int = 20):
     """Top tails by sighting count."""
     return {"top": sightings_db.top_seen(limit=limit)}
-
-
-@app.post("/ingest")
-async def trigger_ingest():
-    """DISABLED — see the $750 FA bill incident in June 2026.
-    The airport_movements paginated ingest cost too much per call. Footer
-    now uses FA's free /flights/counts fields only."""
-    return {"disabled": True, "reason": "airport_movements ingest removed for cost — see backend/main.py"}
 
 
 if __name__ == "__main__":

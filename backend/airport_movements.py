@@ -1,20 +1,41 @@
-"""Local SQLite cache of today's airport arrivals and departures.
+"""
+⚠️  DORMANT MODULE — DO NOT RE-ENABLE WITHOUT READING THIS FIRST  ⚠️
+================================================================
 
-Why this exists: FA's `/airports/{code}/flights/counts` only exposes
-`scheduled_arrivals` (forward-looking rolling window) and `departed` (today
-so far). There's no field for "arrived today so far" — we have to compute
-it ourselves by counting unique flights whose actual_on is set and >= midnight.
+This module is preserved as a CAUTIONARY REFERENCE, not active code.
+Nothing in the running app calls it. The scheduler loop that used to
+drive it was removed, and so was the /ingest API endpoint.
 
-Strategy:
-  - Background job (in scheduler.py) calls `ingest_today()` every N minutes.
-  - That paginates FA's /flights/arrivals + /flights/departures with start=midnight.
-  - Each flight is upserted by `fa_flight_id` (unique per flight instance).
-  - `count_today(code, kind)` is called on every board render — pure SQL,
-    no API call, sub-millisecond.
+Why it was abandoned: this was an attempt to maintain a local cache of
+today's airport arrivals + departures by paginating FlightAware's
+`/airports/{code}/flights/arrivals` and `/flights/departures` endpoints.
+On FA's personal tier those paginated endpoints cost roughly $1-2 PER CALL.
 
-Cost note: each ingest cycle hits ~24 pages × 2 kinds = ~48 FA calls. At
-30-min cadence = ~2300 calls/day. Tunable via AIRPORT_INGEST_INTERVAL env var.
-Watch FA usage in their dashboard for the first few days.
+In June 2026 a 30-min ingest cycle (with retries + backfill mode) racked
+up ~280 calls in 5 hours and contributed to a ~$750 monthly FlightAware
+bill on what should have been a free-tier install. Full incident notes
+live in `cost_tracker.py` and the project README.
+
+If you're tempted to re-enable this, FIRST:
+  1. Read `cost_tracker.py` and the README "API costs" section
+  2. Verify FA's current pricing for paginated endpoints — do not assume
+     they're cheap because the docs make them sound simple
+  3. Confirm there's no cheaper alternative (FA's free `/flights/counts`
+     endpoint covers most "how many flights today?" use cases — that's
+     what the dashboard currently uses)
+
+If you genuinely need this functionality, please open an issue first so
+we can discuss whether it can be made safe.
+
+================================================================
+
+Original purpose (for historical context — DO NOT TREAT AS ACTIVE SPEC):
+
+FA's `/airports/{code}/flights/counts` only exposes `scheduled_arrivals`
+(forward-looking rolling window) and `departed` (today so far). There was
+no field for "arrived today so far" — this module computed it by counting
+unique flights whose actual_on was set and >= midnight via the paginated
+`/flights/arrivals` endpoint.
 """
 import asyncio
 import os
