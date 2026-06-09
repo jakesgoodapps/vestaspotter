@@ -21,6 +21,7 @@ from .scheduler import (
     get_detector,
     is_quiet_hours,
     start_daily_snapshot_loop,
+    start_followed_flight_loop,
     start_polling_loop,
     start_potus_schedule_refresh_loop,
 )
@@ -81,8 +82,11 @@ async def lifespan(app: FastAPI):
     potus_schedule_task = asyncio.create_task(
         start_potus_schedule_refresh_loop()
     )
+    followed_flight_task = asyncio.create_task(
+        start_followed_flight_loop(state, enricher, board)
+    )
     yield
-    for t in (poll_task, snapshot_task, potus_schedule_task):
+    for t in (poll_task, snapshot_task, potus_schedule_task, followed_flight_task):
         t.cancel()
         try:
             await t

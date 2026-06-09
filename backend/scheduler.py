@@ -16,11 +16,11 @@ from datetime import datetime, time as dtime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from . import board_state, daily_history, pause_state, potus_detector, potus_schedule, scheduled_profiles, settings_state, watch_list
+from . import board_state, city_lookup, daily_history, followed_flight, pause_state, potus_detector, potus_schedule, scheduled_profiles, settings_state, turbulence, watch_list
 from .config import settings
 from .data_pipeline import to_aircraft_view, to_airport_view
 from .enrichment import FlightEnricher
-from .formatter import format_board, format_no_traffic_board, format_potus_confirmed_board, format_potus_imminent_board, render_ascii
+from .formatter import format_board, format_followed_flight_board, format_no_traffic_board, format_potus_confirmed_board, format_potus_imminent_board, render_ascii
 from .models import EnrichedAircraft
 from .tracker import AircraftTracker
 from .vestaboard import VestaboardClient
@@ -117,6 +117,22 @@ async def _tick(
 ) -> None:
     nearby = await tracker.get_nearby_aircraft()
     overhead = tracker.filter_overhead(nearby)
+
+    # Mode conflict: if a followed flight is active, it owns the board.
+    # We still enrich + record overhead sightings (stats DB stays accurate),
+    # but we don't render anything for them — the followed-flight loop is
+    # responsible for what shows on the Vestaboard.
+    if followed_flight.is_active():
+        if overhead:
+            primary = overhead[0]
+            try:
+                enriched = await enricher.enrich(primary)
+                state.current_overhead = enriched
+            except Exception as e:
+                print(f"followed-mode sighting enrich failed: {e}")
+        else:
+            state.current_overhead = None
+        return
 
     # POTUS detector is opt-in (DC-only). When disabled it's a no-op so we
     # don't even pay the cost of running pattern matching on every tick.
@@ -218,6 +234,114 @@ async def _push_aircraft(
         f"pushed {view.airline_iata}{view.flight_number} "
         f"({view.origin_iata}>>{view.destination_iata}) "
         f"tail={view.tail_number}"
+    )
+
+
+async def start_followed_flight_loop(
+    state: SpotterState,
+    enricher: FlightEnricher,
+    board: VestaboardClient,
+) -> None:
+    """Background loop driving the followed-flight feature.
+
+    When no flight is active, idles cheaply (60s sleep). When a flight is
+    being followed, polls FA + position + city + turbulence on a cadence
+    that varies by phase, renders the appropriate board, pushes it.
+
+    When the POST_LANDED hold elapses, derive_phase() returns IDLE and we
+    clear the followed-flight state. The next regular _tick() then sees
+    followed_flight.is_active() == False and overhead rendering resumes.
+
+    Does NOT respect quiet hours — if the user is actively tracking, they
+    want the data. They can stop following manually if they want quiet.
+    """
+    print("followed-flight loop started")
+    while True:
+        try:
+            flight = followed_flight.get_current()
+            if flight is None:
+                await asyncio.sleep(60)
+                continue
+
+            phase = flight.derive_phase()
+            if phase == followed_flight.Phase.IDLE:
+                print("followed flight is fully complete — clearing state, resuming overhead mode")
+                followed_flight.clear()
+                await asyncio.sleep(60)
+                continue
+
+            await _poll_followed_flight(flight, enricher)
+            followed_flight.set_current(flight)
+            await _push_followed_flight(state, flight, board)
+
+            cadence = followed_flight.POLL_CADENCE_SECONDS.get(
+                flight.derive_phase().value, 300
+            )
+            await asyncio.sleep(cadence)
+        except Exception as e:
+            print(f"followed-flight loop tick failed: {e}")
+            await asyncio.sleep(60)
+
+
+async def _poll_followed_flight(flight, enricher: FlightEnricher) -> None:
+    """Refresh FA data + position + city + turbulence for the given flight (in place)."""
+    instances = await enricher.get_flight_instances(flight.user_ident)
+    if instances:
+        matching = next(
+            (i for i in instances if i.get("fa_flight_id") == flight.fa_flight_id),
+            None,
+        )
+        if matching:
+            followed_flight.apply_fa_refresh(flight, matching)
+
+    phase = flight.derive_phase()
+    needs_position = phase in (
+        followed_flight.Phase.AIRBORNE,
+        followed_flight.Phase.APPROACH,
+    )
+    if needs_position:
+        position = await enricher.get_flight_position(flight.fa_flight_id)
+        if position:
+            followed_flight.apply_position(flight, position)
+            if flight.last_latitude is not None and flight.last_longitude is not None:
+                # City below — best-effort, ok if it fails
+                try:
+                    city = await city_lookup.lookup_city(
+                        flight.last_latitude, flight.last_longitude
+                    )
+                    if city:
+                        flight.last_city = city
+                except Exception as e:
+                    print(f"city lookup failed: {e}")
+                # Turbulence at current pos + frontier tile color update
+                try:
+                    severity = await turbulence.get_turbulence_at(
+                        flight.last_latitude,
+                        flight.last_longitude,
+                        flight.last_altitude_100s_ft,
+                    )
+                    flight.update_progress_tile(severity)
+                except Exception as e:
+                    print(f"turbulence lookup failed: {e}")
+
+
+async def _push_followed_flight(
+    state: SpotterState,
+    flight,
+    board: VestaboardClient,
+) -> None:
+    """Render the current-phase board for a followed flight and push it."""
+    matrix = format_followed_flight_board(flight)
+    await board.push(matrix)
+    state.last_push_ts = time.time()
+    state.last_render_matrix = matrix
+    state.last_pushed_icao24 = None
+    state.last_pushed_no_traffic = False
+    board_state.save(matrix, None, False)
+    phase = flight.derive_phase().value
+    print(
+        f"pushed followed-flight board "
+        f"(phase={phase}, ident={flight.user_ident}, label='{flight.label}')"
     )
 
 
