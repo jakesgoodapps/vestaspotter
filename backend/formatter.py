@@ -291,6 +291,297 @@ def format_potus_imminent_board(
     ]
 
 
+# ============================================================================
+#  Followed-flight renderers (used by the "follow a single flight" feature)
+# ============================================================================
+#
+#  These functions take a FollowedFlight (from backend.followed_flight) and
+#  return a 6x22 matrix for whichever phase the flight is currently in.
+#  See backend/followed_flight.py for the state machine that picks the phase.
+
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+from .airline_colors import BLUE, ORANGE
+from .config import settings as _settings
+
+_LOCAL_TZ = ZoneInfo(_settings.local_timezone)
+
+# Map followed_flight.WEATHER_TO_TILE_COLOR string names → board tile codes.
+_TILE_COLOR_NAME_TO_CODE = {
+    "blue":   BLUE,
+    "yellow": YELLOW,
+    "orange": ORANGE,
+    "red":    RED,
+    None:     WHITE,    # untraversed
+}
+
+
+def _parse_iso(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _hhmm_local(iso_str: str | None) -> str:
+    """ISO UTC → '842P' style 4-char local time. '----' if unparseable."""
+    dt = _parse_iso(iso_str)
+    if not dt:
+        return "----"
+    local = dt.astimezone(_LOCAL_TZ)
+    h = local.hour
+    suffix = "A" if h < 12 else "P"
+    h12 = h % 12 or 12
+    return f"{h12}{local.minute:02d}{suffix}"
+
+
+def _duration_str(seconds: int | None) -> str:
+    """Seconds → short countdown string. None/negative → empty.
+        seconds < 60      → '< 1M'
+        60 <= s < 3600    → '34M'
+        s >= 3600         → '8H 34M'
+    """
+    if seconds is None or seconds < 0:
+        return ""
+    if seconds < 60:
+        return "< 1M"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}M"
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}H {mins:02d}M"
+
+
+def _airline_route_row(flight) -> list[int]:
+    """Row 1 for followed-flight phases: 🟦UA 1234    BOS -- LAX
+
+    Reuses the same visual identity as the overhead-render row 1.
+    """
+    from .airline_colors import color_for
+    row = blank_row()
+    row[0] = color_for(flight.operator_iata)
+    write_text(row, 1, flight.operator_iata[:2])
+    write_text(row, 4, str(flight.flight_number)[:4])
+    write_text(row, 11, flight.origin_iata[:3])
+    write_text(row, 15, "--")
+    write_text(row, 18, flight.destination_iata[:3])
+    return row
+
+
+def _label_row(label: str) -> list[int]:
+    """Row 6: 🟩LABEL TEXT (green tile + up to 21 chars of personalization)."""
+    row = blank_row()
+    row[0] = GREEN
+    if label:
+        write_text(row, 1, label[:COLS - 1])
+    return row
+
+
+def _progress_bar_row(flight) -> list[int]:
+    """Row 5 for AIRBORNE: BOS + 16 weather-colored tiles + LAX.
+
+    Frontier tile reflects current weather; tiles to the left preserve
+    historical weather (whatever they were when they were the frontier).
+    Untraversed tiles are white.
+    """
+    row = blank_row()
+    write_text(row, 0, flight.origin_iata[:3])
+    write_text(row, 19, flight.destination_iata[:3])
+    for i, name in enumerate(flight.progress_tile_colors):
+        row[3 + i] = _TILE_COLOR_NAME_TO_CODE.get(name, WHITE)
+    return row
+
+
+def _delay_status_text(flight) -> str:
+    """Quick textual status for pre-flight rows: 'ON TIME' / '+12M LATE' / '-5M EARLY'."""
+    delay = flight.arrival_delay_minutes()
+    if delay <= 0 and delay >= -2:
+        return "ON TIME"
+    if delay > 0:
+        return f"+{delay}M LATE"
+    return f"{-delay}M EARLY"
+
+
+# ----- Per-phase renderers --------------------------------------------------
+
+def format_preflight_board(flight) -> list[list[int]]:
+    """PRE_FLIGHT: scheduled times + gate + countdown to departure."""
+    sched_out = _hhmm_local(flight.scheduled_out)
+    sched_in  = _hhmm_local(flight.scheduled_in)
+    gate = flight.gate_origin or flight.terminal_origin or "?"
+    countdown = _duration_str(flight.time_until_departure_seconds())
+    status = _delay_status_text(flight)
+
+    rows = [
+        _airline_route_row(flight),
+        _row_text(f"SCHED  {sched_out}  ARR {sched_in}"),
+        _row_text(f"GATE {gate}".ljust(13) + status.rjust(9)),
+        _row_text(f"DEPARTS IN  {countdown}"),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+    return rows
+
+
+def format_boarding_board(flight) -> list[list[int]]:
+    """BOARDING: gate + countdown to scheduled push."""
+    gate = flight.gate_origin or flight.terminal_origin or "?"
+    sched_out = _hhmm_local(flight.scheduled_out)
+    countdown = _duration_str(flight.time_until_departure_seconds())
+    return [
+        _airline_route_row(flight),
+        _row_text(f"NOW BOARDING  GATE {gate}"),
+        _row_text(f"SCHED DEP  {sched_out}"),
+        _row_text(f"DEPARTS IN  {countdown}"),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+
+
+def format_taxi_board(flight) -> list[list[int]]:
+    """TAXI_OUT: pushback time + 'taxiing to runway'."""
+    pushback = _hhmm_local(flight.actual_out)
+    return [
+        _airline_route_row(flight),
+        _row_text(f"PUSHED BACK   {pushback}"),
+        _row_text("TAXIING TO RUNWAY"),
+        blank_row(),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+
+
+def format_airborne_board(flight) -> list[list[int]]:
+    """AIRBORNE: alt + speed + city below + countdown + frontier weather bar."""
+    alt_ft = (flight.last_altitude_100s_ft or 0) * 100
+    spd    = flight.last_groundspeed_kt or 0
+    city   = (flight.last_city or "").upper()[:18] or "OVER THE OCEAN"
+    remaining = _duration_str(flight.time_until_arrival_seconds())
+    return [
+        _airline_route_row(flight),
+        _row_text(f"{alt_ft}FT".ljust(11) + f"{spd}KT".rjust(11)),
+        _row_text(f"OVER  {city}"),
+        _row_text(f"{remaining} LEFT".ljust(13) + f"{flight.progress_percent}% DONE".rjust(9)),
+        _progress_bar_row(flight),
+        _label_row(flight.label),
+    ]
+
+
+def format_approach_board(flight) -> list[list[int]]:
+    """APPROACH: descending altitude + arrival airport + ETA + arrival gate."""
+    alt_ft = (flight.last_altitude_100s_ft or 0) * 100
+    eta = _hhmm_local(flight.estimated_in or flight.scheduled_in)
+    until = _duration_str(flight.time_until_arrival_seconds())
+    gate = flight.gate_destination or flight.terminal_destination or "?"
+    return [
+        _airline_route_row(flight),
+        _row_text(f"DESCENDING  {alt_ft}FT"),
+        _row_text(f"APPROACHING {flight.destination_iata}"),
+        _row_text(f"LANDS IN   {until}"),
+        _row_text(f"GATE {gate}".ljust(12) + f"ETA {eta}".rjust(10)),
+        _label_row(flight.label),
+    ]
+
+
+def format_landed_board(flight) -> list[list[int]]:
+    """LANDED: actual on time + delta to schedule + gate destination."""
+    on = _hhmm_local(flight.actual_on)
+    delay = flight.arrival_delay_minutes()
+    if delay <= -1:
+        delta = f"{-delay}M EARLY"
+    elif delay >= 1:
+        delta = f"{delay}M LATE"
+    else:
+        delta = "ON TIME"
+    gate = flight.gate_destination or flight.terminal_destination or "?"
+    return [
+        _airline_route_row(flight),
+        _row_text(f"LANDED {on} {delta}"),
+        _row_text(f"TAXIING TO GATE {gate}"),
+        blank_row(),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+
+
+def format_post_landed_board(flight) -> list[list[int]]:
+    """POST_LANDED: at-gate + baggage claim + welcome line."""
+    gate = flight.gate_destination or flight.terminal_destination or "?"
+    bag  = flight.baggage_claim or "?"
+    return [
+        _airline_route_row(flight),
+        _row_text(f"ARRIVED AT GATE {gate}"),
+        _row_text(f"BAGGAGE CLAIM   {bag}"),
+        _row_text(f"WELCOME TO {flight.destination_iata}"),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+
+
+def format_cancelled_board(flight) -> list[list[int]]:
+    """CANCELLED: red tile + cancellation notice."""
+    sched_out = _hhmm_local(flight.scheduled_out)
+    row2 = blank_row()
+    row2[0] = RED
+    write_text(row2, 1, "CANCELLED")
+    return [
+        _airline_route_row(flight),
+        row2,
+        _row_text(f"ORIG SCHED {sched_out} TODAY"),
+        blank_row(),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+
+
+def format_diverted_board(flight) -> list[list[int]]:
+    """DIVERTED: red tile + new destination."""
+    new_dest = flight.divert_destination_iata or "???"
+    until = _duration_str(flight.time_until_arrival_seconds())
+    row2 = blank_row()
+    row2[0] = RED
+    write_text(row2, 1, f"DIVERTED TO {new_dest}")
+    return [
+        _airline_route_row(flight),
+        row2,
+        _row_text(f"APPROACHING {new_dest}"),
+        _row_text(f"LANDS IN   {until}"),
+        blank_row(),
+        _label_row(flight.label),
+    ]
+
+
+def _row_text(text: str) -> list[int]:
+    """Pad text to COLS chars and convert to codes."""
+    row = blank_row()
+    write_text(row, 0, text[:COLS])
+    return row
+
+
+# Dispatcher — single entry point used by the scheduler.
+def format_followed_flight_board(flight) -> list[list[int]]:
+    """Dispatch to the right per-phase renderer based on flight.derive_phase()."""
+    from .followed_flight import Phase
+    phase = flight.derive_phase()
+    return {
+        Phase.PRE_FLIGHT:  format_preflight_board,
+        Phase.BOARDING:    format_boarding_board,
+        Phase.TAXI_OUT:    format_taxi_board,
+        Phase.AIRBORNE:    format_airborne_board,
+        Phase.APPROACH:    format_approach_board,
+        Phase.LANDED:      format_landed_board,
+        Phase.POST_LANDED: format_post_landed_board,
+        Phase.CANCELLED:   format_cancelled_board,
+        Phase.DIVERTED:    format_diverted_board,
+        # Phase.IDLE should never call this; scheduler checks is_active first.
+    }.get(phase, format_preflight_board)(flight)
+
+
 COLOR_SYMBOLS = {63: "🟥", 64: "🟧", 65: "🟨", 66: "🟩", 67: "🟦", 68: "🟪", 69: "⬜", 70: "⬛", 71: "🟫"}
 
 
