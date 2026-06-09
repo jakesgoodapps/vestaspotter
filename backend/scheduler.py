@@ -241,62 +241,95 @@ async def _push_aircraft(
     )
 
 
+_FOLLOWED_SCAN_INTERVAL = 60  # seconds between queue scans
+
+
 async def start_followed_flight_loop(
     state: SpotterState,
     enricher: FlightEnricher,
     board: VestaboardClient,
 ) -> None:
-    """Background loop driving the followed-flight feature.
+    """Background loop driving the followed-flight queue (v0.2.0).
 
-    When no flight is active, idles cheaply (60s sleep). When a flight is
-    being followed, polls FA + position + city + turbulence on a cadence
-    that varies by phase, renders the appropriate board, pushes it.
+    Scan-based: every _FOLLOWED_SCAN_INTERVAL seconds we
+      1. Prune any flights that have finished POST_LANDED + cooldown
+      2. For each queued flight, poll FA + position if its phase-cadence is
+         overdue since last_poll_at
+      3. Ask the queue which flight should currently OWN the board (priority
+         resolver in followed_flight.get_active_for_render)
+      4. Push that flight's board if EITHER it just got polled OR it differs
+         from whoever was rendering last tick (handover case)
 
-    When the POST_LANDED hold elapses, derive_phase() returns IDLE and we
-    clear the followed-flight state. The next regular _tick() then sees
-    followed_flight.is_active() == False and overhead rendering resumes.
+    When the queue empties (or only contains queued PRE_FLIGHT outside the
+    3h render window), is_active_for_render() returns False and overhead
+    rendering resumes on the next regular _tick().
 
     Does NOT respect quiet hours — if the user is actively tracking, they
-    want the data. They can stop following manually if they want quiet.
+    want the data. They can remove the flight manually if they want quiet.
     """
-    print("followed-flight loop started")
+    print("followed-flight loop started (queue scanner)")
+    from datetime import datetime, timezone
+
     while True:
         try:
-            flight = followed_flight.get_current()
-            if flight is None:
-                await asyncio.sleep(60)
-                continue
+            # 1. Drop completed flights
+            removed = followed_flight.prune_idle()
+            if removed > 0:
+                print(f"followed-flight: pruned {removed} completed flight(s) from queue")
 
-            phase = flight.derive_phase()
-            if phase == followed_flight.Phase.IDLE:
-                print("followed flight is fully complete — clearing state, resuming overhead mode")
-                followed_flight.clear()
-                await asyncio.sleep(60)
-                continue
+            # 2. Poll each queued flight whose cadence is overdue
+            polled_ids: set[str] = set()
+            for flight in followed_flight.list_all():
+                phase = flight.derive_phase()
+                cadence = followed_flight.POLL_CADENCE_SECONDS.get(phase.value, 300)
+                last_poll = _parse_followed_iso(flight.last_poll_at)
+                now = datetime.now(timezone.utc)
+                overdue = (last_poll is None) or ((now - last_poll).total_seconds() >= cadence)
+                if not overdue:
+                    continue
+                try:
+                    await _poll_followed_flight(flight, enricher)
+                    followed_flight.update_flight(flight)
+                    polled_ids.add(flight.fa_flight_id)
+                except Exception as e:
+                    print(f"followed-flight: poll failed for {flight.fa_flight_id}: {e}")
 
-            await _poll_followed_flight(flight, enricher)
-            followed_flight.set_current(flight)
-
-            # Only push to the board if we're inside the render window.
-            # Outside it (PRE_FLIGHT > 3h out), the dashboard still shows the
-            # flight is being tracked, but the board stays on overhead mode.
-            if followed_flight.is_active_for_render():
-                await _push_followed_flight(state, flight, board)
+            # 3. Pick who currently owns the board + push when needed
+            active = followed_flight.get_active_for_render()
+            last_render_id = getattr(state, "_followed_render_id", None)
+            if active is not None:
+                handover = active.fa_flight_id != last_render_id
+                refreshed = active.fa_flight_id in polled_ids
+                if handover or refreshed:
+                    await _push_followed_flight(state, active, board)
+                    state._followed_render_id = active.fa_flight_id
+                    if handover:
+                        print(
+                            f"followed-flight: board now owned by "
+                            f"{active.user_ident} '{active.label}' "
+                            f"(phase={active.derive_phase().value})"
+                        )
             else:
-                until = flight.time_until_departure_seconds() or 0
-                hours = until // 3600
-                print(
-                    f"followed flight queued (PRE_FLIGHT, departs in ~{hours}h) — "
-                    f"board not yet rendering (3h window)"
-                )
+                if last_render_id is not None:
+                    # All flights pruned or all back in pre-render window
+                    print("followed-flight: no active renderer; overhead rendering resumes next tick")
+                    state._followed_render_id = None
 
-            cadence = followed_flight.POLL_CADENCE_SECONDS.get(
-                flight.derive_phase().value, 300
-            )
-            await asyncio.sleep(cadence)
+            await asyncio.sleep(_FOLLOWED_SCAN_INTERVAL)
         except Exception as e:
-            print(f"followed-flight loop tick failed: {e}")
-            await asyncio.sleep(60)
+            print(f"followed-flight loop scan failed: {e}")
+            await asyncio.sleep(_FOLLOWED_SCAN_INTERVAL)
+
+
+def _parse_followed_iso(s: Optional[str]) -> Optional["datetime"]:
+    """Minimal ISO parser for last_poll_at strings. Returns None on failure."""
+    if not s:
+        return None
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
 
 
 async def _poll_followed_flight(flight, enricher: FlightEnricher) -> None:
