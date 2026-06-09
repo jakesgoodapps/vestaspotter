@@ -51,6 +51,12 @@ BOARDING_WINDOW_SECONDS = 30 * 60
 # Within this many seconds of estimated_on we transition AIRBORNE → APPROACH.
 APPROACH_WINDOW_SECONDS = 15 * 60
 
+# How early before scheduled_out we start rendering the PRE_FLIGHT board.
+# A flight can be ADDED to the tracker any time, but the board itself only
+# takes over inside this window. Lets users pre-queue a flight days in advance
+# without 23 hours of "DEPARTS IN 18H 14M" sitting on their board.
+PRE_FLIGHT_RENDER_WINDOW_SECONDS = 3 * 3600
+
 # Label max length on row 6 (1 leading tile + 21 chars of text = 22 cols).
 LABEL_MAX_CHARS = 21
 
@@ -271,11 +277,39 @@ _current: Optional[FollowedFlight] = None
 
 
 def is_active() -> bool:
-    """True if a followed flight is currently being tracked (not IDLE)."""
+    """True if a followed flight is being tracked at all (not IDLE).
+
+    "Being tracked" = stored in state, refreshing from FA, visible in the
+    dashboard. NOT the same as "rendering to the board" — see is_active_for_render().
+    """
     f = get_current()
     if f is None:
         return False
     return f.derive_phase() != Phase.IDLE
+
+
+def is_active_for_render() -> bool:
+    """True if a followed flight should currently OWN the board.
+
+    Differs from is_active() during the PRE_FLIGHT pre-render window: a flight
+    can be queued and refreshing in the background, but the board stays in
+    overhead mode until we're inside PRE_FLIGHT_RENDER_WINDOW_SECONDS of
+    scheduled departure. Edge cases (CANCELLED, DIVERTED, BOARDING onward) all
+    render immediately — only PRE_FLIGHT is gated.
+    """
+    f = get_current()
+    if f is None:
+        return False
+    phase = f.derive_phase()
+    if phase == Phase.IDLE:
+        return False
+    if phase != Phase.PRE_FLIGHT:
+        return True
+    # PRE_FLIGHT — only render if within the window
+    time_until_dep = f.time_until_departure_seconds()
+    if time_until_dep is None:
+        return True  # No departure time? Render anyway, better to show something
+    return time_until_dep <= PRE_FLIGHT_RENDER_WINDOW_SECONDS
 
 
 def get_current() -> Optional[FollowedFlight]:

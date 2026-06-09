@@ -1171,7 +1171,16 @@ async function loadFollowStatus() {
     }
     empty.style.display = 'none';
     active.style.display = '';
-    document.getElementById('follow-phase-badge').textContent = (d.phase || '').replace('_', ' ');
+    // Phase badge: tint amber when queued-but-not-rendering, blue otherwise
+    const badge = document.getElementById('follow-phase-badge');
+    const queued = d.active && !d.active_for_render;
+    if (queued) {
+      badge.style.background = '#b58105';
+      badge.textContent = 'QUEUED';
+    } else {
+      badge.style.background = '#2d6cdf';
+      badge.textContent = (d.phase || '').replace('_', ' ');
+    }
     document.getElementById('follow-flight-display').textContent = `${d.operator_iata || ''}${d.flight_number || ''}  ${d.origin} → ${d.destination}`;
     document.getElementById('follow-route-display').textContent = `${d.aircraft_type || '?'} · ${d.status_text || ''}`;
     document.getElementById('follow-label-display').textContent = d.label ? `"${d.label}"` : '';
@@ -1206,7 +1215,13 @@ async function loadFollowStatus() {
 
     // Status / countdown text
     const statusEl = document.getElementById('follow-status-text');
-    if (d.time_until_departure_s && d.time_until_departure_s > 0 && d.phase !== 'airborne') {
+    if (queued) {
+      const t = d.time_until_departure_s || 0;
+      const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+      const hoursUntilRender = Math.max(0, t - 3 * 3600);
+      const rh = Math.floor(hoursUntilRender / 3600), rm = Math.floor((hoursUntilRender % 3600) / 60);
+      statusEl.innerHTML = `Departs in <strong>${h ? h + 'h ' : ''}${m}m</strong> · board takes over in ${rh ? rh + 'h ' : ''}${rm}m (3h before departure)`;
+    } else if (d.time_until_departure_s && d.time_until_departure_s > 0 && d.phase !== 'airborne') {
       const t = d.time_until_departure_s;
       const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
       statusEl.textContent = `Departs in ${h ? h + 'h ' : ''}${m}m · gate ${d.gate_destination || ''}`;

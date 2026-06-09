@@ -368,6 +368,7 @@ async def followed_status():
     phase = flight.derive_phase()
     return {
         "active": phase != followed_flight.Phase.IDLE,
+        "active_for_render": followed_flight.is_active_for_render(),
         "phase": phase.value,
         "user_ident":  flight.user_ident,
         "label":       flight.label,

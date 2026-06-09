@@ -118,11 +118,15 @@ async def _tick(
     nearby = await tracker.get_nearby_aircraft()
     overhead = tracker.filter_overhead(nearby)
 
-    # Mode conflict: if a followed flight is active, it owns the board.
-    # We still enrich + record overhead sightings (stats DB stays accurate),
-    # but we don't render anything for them — the followed-flight loop is
+    # Mode conflict: if a followed flight is currently OWNING THE BOARD, we
+    # still enrich + record overhead sightings (stats DB stays accurate), but
+    # we don't render anything for them — the followed-flight loop is
     # responsible for what shows on the Vestaboard.
-    if followed_flight.is_active():
+    #
+    # Note: a pre-queued PRE_FLIGHT flight outside the 3-hour render window
+    # is "active" (refreshing in background) but is_active_for_render() is
+    # False, so overhead rendering proceeds normally until the window opens.
+    if followed_flight.is_active_for_render():
         if overhead:
             primary = overhead[0]
             try:
@@ -272,7 +276,19 @@ async def start_followed_flight_loop(
 
             await _poll_followed_flight(flight, enricher)
             followed_flight.set_current(flight)
-            await _push_followed_flight(state, flight, board)
+
+            # Only push to the board if we're inside the render window.
+            # Outside it (PRE_FLIGHT > 3h out), the dashboard still shows the
+            # flight is being tracked, but the board stays on overhead mode.
+            if followed_flight.is_active_for_render():
+                await _push_followed_flight(state, flight, board)
+            else:
+                until = flight.time_until_departure_seconds() or 0
+                hours = until // 3600
+                print(
+                    f"followed flight queued (PRE_FLIGHT, departs in ~{hours}h) — "
+                    f"board not yet rendering (3h window)"
+                )
 
             cadence = followed_flight.POLL_CADENCE_SECONDS.get(
                 flight.derive_phase().value, 300
