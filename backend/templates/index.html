@@ -293,6 +293,48 @@
   <div id="board-empty" class="board-empty" style="display:none">No frame pushed yet today</div>
 </div>
 
+<!-- Follow a Flight -->
+<div class="card" id="follow-card">
+  <div class="card-title">✈️ Follow a Flight</div>
+  <div id="follow-empty">
+    <div class="sub" style="margin-bottom: 12px">Track a friend or family member's trip in real-time. The board takes over until 30 minutes after they're at the gate.</div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <input id="follow-ident" type="text" placeholder="Flight # (e.g. AA1, UA1234)" autocapitalize="characters" autocomplete="off" style="padding: 8px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px;">
+      <input id="follow-date" type="date" style="padding: 8px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px;">
+      <div style="position: relative">
+        <input id="follow-label" type="text" placeholder="Label for the board (e.g. MOM TO CALI)" maxlength="21" autocapitalize="characters" autocomplete="off" style="padding: 8px; padding-right: 50px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px; width: 100%; box-sizing: border-box;">
+        <span id="follow-label-count" class="sub" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px;">0/21</span>
+      </div>
+      <button class="resume" onclick="verifyFollowFlight()">Verify Flight</button>
+    </div>
+    <div id="follow-verify-result" style="margin-top: 10px"></div>
+  </div>
+  <div id="follow-active" style="display: none">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+      <div>
+        <div class="label" style="margin-bottom: 4px"><span id="follow-phase-badge" style="background: #2d6cdf; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase; font-weight: 600">—</span></div>
+        <div class="value big" id="follow-flight-display">—</div>
+        <div class="sub" id="follow-route-display">—</div>
+        <div class="sub" id="follow-label-display" style="margin-top: 4px; font-style: italic">—</div>
+      </div>
+      <button class="danger" onclick="stopFollowFlight()" style="white-space: nowrap">Stop Following</button>
+    </div>
+    <div id="follow-progress-wrap" style="margin-top: 12px; display: none">
+      <div style="display: flex; justify-content: space-between; font-size: 12px; color: #8b949e; margin-bottom: 4px">
+        <span id="follow-progress-pct">0%</span>
+        <span id="follow-progress-eta">—</span>
+      </div>
+      <div style="background: #1a1f25; height: 8px; border-radius: 4px; overflow: hidden">
+        <div id="follow-progress-fill" style="height: 100%; background: linear-gradient(90deg, #2d6cdf, #4d9cef); width: 0%; transition: width 0.5s"></div>
+      </div>
+    </div>
+    <div id="follow-live-stats" style="margin-top: 10px; font-size: 12px; color: #8b949e; display: none">
+      <div><span style="color: #c4cdd6" id="follow-alt">—</span> · <span id="follow-speed">—</span> · <span id="follow-city">—</span></div>
+    </div>
+    <div id="follow-status-text" class="sub" style="margin-top: 8px"></div>
+  </div>
+</div>
+
 <!-- Today's stats -->
 <div class="card">
   <div class="card-title">Today (since local midnight)</div>
@@ -1007,6 +1049,8 @@ loadHistory();
 loadProfiles();
 loadPotus();
 loadHelicopters();
+loadFollowStatus();
+initFollowCard();
 startCountdown();
 startLastPushTicker();
 setInterval(refresh, 5000);
@@ -1016,6 +1060,168 @@ setInterval(loadHistory, 60000);
 setInterval(loadProfiles, 30000);
 setInterval(loadPotus, 10000);  // 10s — fastest refresh on dashboard since it's time-sensitive
 setInterval(loadHelicopters, 30000);
+setInterval(loadFollowStatus, 15000);
+
+// ============================================================================
+//  Follow a Flight — verify, start, stop, refresh
+// ============================================================================
+
+function initFollowCard() {
+  // Default date input to today
+  const d = document.getElementById('follow-date');
+  if (d && !d.value) {
+    const today = new Date();
+    d.value = today.toISOString().slice(0, 10);
+  }
+  // Live char counter on the label
+  const label = document.getElementById('follow-label');
+  const counter = document.getElementById('follow-label-count');
+  if (label && counter) {
+    const upd = () => {
+      label.value = label.value.toUpperCase();
+      counter.textContent = `${label.value.length}/21`;
+    };
+    label.addEventListener('input', upd);
+    upd();
+  }
+  // Pressing Enter on ident or label triggers verify
+  ['follow-ident', 'follow-label'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') verifyFollowFlight(); });
+  });
+}
+
+async function verifyFollowFlight() {
+  const ident = (document.getElementById('follow-ident').value || '').toUpperCase().trim();
+  const date = document.getElementById('follow-date').value;
+  const result = document.getElementById('follow-verify-result');
+  if (!ident || !date) {
+    result.innerHTML = '<div style="color: #f85149; font-size: 12px">Need both flight number and date.</div>';
+    return;
+  }
+  result.innerHTML = '<div class="sub">Looking up flight...</div>';
+  try {
+    const r = await fetch(`/api/followed/verify?ident=${encodeURIComponent(ident)}&date=${encodeURIComponent(date)}`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.matched) {
+      result.innerHTML = `<div style="color: #f85149; font-size: 12px">${d.error || 'Not found.'}</div>`;
+      return;
+    }
+    const p = d.preview;
+    const schedOut = p.scheduled_out ? new Date(p.scheduled_out).toLocaleString([], { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }) : '—';
+    result.innerHTML = `
+      <div style="background: #1a1f25; border: 1px solid #2a2f35; padding: 10px; border-radius: 4px; margin-top: 8px">
+        <div style="font-weight: 600; margin-bottom: 4px">${p.ident_display || ident}  ${p.origin} → ${p.destination}</div>
+        <div class="sub">Scheduled: ${schedOut}</div>
+        <div class="sub">Aircraft: ${p.aircraft_type || '?'} ${p.registration ? '· ' + p.registration : ''}</div>
+        <div class="sub">Status: ${p.status || '—'}</div>
+        <div style="display: flex; gap: 8px; margin-top: 10px">
+          <button class="resume" style="flex: 1" onclick="confirmFollowFlight('${ident}', '${date}')">Confirm & Track</button>
+          <button class="danger" onclick="cancelFollowVerify()">Cancel</button>
+        </div>
+      </div>`;
+  } catch (e) {
+    result.innerHTML = `<div style="color: #f85149; font-size: 12px">Lookup failed: ${e}</div>`;
+  }
+}
+
+function cancelFollowVerify() {
+  document.getElementById('follow-verify-result').innerHTML = '';
+}
+
+async function confirmFollowFlight(ident, date) {
+  const label = document.getElementById('follow-label').value || '';
+  try {
+    const r = await fetch(`/api/followed/start?ident=${encodeURIComponent(ident)}&date=${encodeURIComponent(date)}&label=${encodeURIComponent(label)}`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.ok) {
+      alert('Could not start following: ' + (d.error || 'unknown error'));
+      return;
+    }
+    // Clear form + transition to active state
+    document.getElementById('follow-verify-result').innerHTML = '';
+    document.getElementById('follow-ident').value = '';
+    document.getElementById('follow-label').value = '';
+    loadFollowStatus();
+  } catch (e) {
+    alert('Start failed: ' + e);
+  }
+}
+
+async function stopFollowFlight() {
+  if (!confirm('Stop following this flight? The board will return to overhead-tracking mode.')) return;
+  try {
+    await fetch('/api/followed/stop', { method: 'POST' });
+    loadFollowStatus();
+  } catch (e) {
+    alert('Stop failed: ' + e);
+  }
+}
+
+async function loadFollowStatus() {
+  try {
+    const r = await fetch('/api/followed/status', { cache: 'no-store' });
+    const d = await r.json();
+    const empty = document.getElementById('follow-empty');
+    const active = document.getElementById('follow-active');
+    if (!d.active) {
+      empty.style.display = '';
+      active.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    active.style.display = '';
+    document.getElementById('follow-phase-badge').textContent = (d.phase || '').replace('_', ' ');
+    document.getElementById('follow-flight-display').textContent = `${d.operator_iata || ''}${d.flight_number || ''}  ${d.origin} → ${d.destination}`;
+    document.getElementById('follow-route-display').textContent = `${d.aircraft_type || '?'} · ${d.status_text || ''}`;
+    document.getElementById('follow-label-display').textContent = d.label ? `"${d.label}"` : '';
+
+    // Progress bar — only show if we have meaningful progress
+    const wrap = document.getElementById('follow-progress-wrap');
+    if (d.progress_percent && d.progress_percent > 0) {
+      wrap.style.display = '';
+      document.getElementById('follow-progress-fill').style.width = `${d.progress_percent}%`;
+      document.getElementById('follow-progress-pct').textContent = `${d.progress_percent}% complete`;
+      const remaining_s = d.time_until_arrival_s;
+      if (remaining_s && remaining_s > 0) {
+        const h = Math.floor(remaining_s / 3600), m = Math.floor((remaining_s % 3600) / 60);
+        document.getElementById('follow-progress-eta').textContent = h ? `${h}h ${m}m left` : `${m}m left`;
+      } else {
+        document.getElementById('follow-progress-eta').textContent = '—';
+      }
+    } else {
+      wrap.style.display = 'none';
+    }
+
+    // Live in-air stats
+    const stats = document.getElementById('follow-live-stats');
+    if (d.altitude_ft || d.groundspeed_kt || d.city) {
+      stats.style.display = '';
+      document.getElementById('follow-alt').textContent = d.altitude_ft ? `${d.altitude_ft.toLocaleString()} ft` : '—';
+      document.getElementById('follow-speed').textContent = d.groundspeed_kt ? `${d.groundspeed_kt} kt` : '—';
+      document.getElementById('follow-city').textContent = d.city || '—';
+    } else {
+      stats.style.display = 'none';
+    }
+
+    // Status / countdown text
+    const statusEl = document.getElementById('follow-status-text');
+    if (d.time_until_departure_s && d.time_until_departure_s > 0 && d.phase !== 'airborne') {
+      const t = d.time_until_departure_s;
+      const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
+      statusEl.textContent = `Departs in ${h ? h + 'h ' : ''}${m}m · gate ${d.gate_destination || ''}`;
+    } else if (d.phase === 'post_landed' && d.baggage_claim) {
+      statusEl.textContent = `Baggage claim ${d.baggage_claim} · gate ${d.gate_destination || ''}`;
+    } else if (d.last_poll_at) {
+      const ago = Math.round((Date.now() - new Date(d.last_poll_at).getTime()) / 1000);
+      statusEl.textContent = `Updated ${ago}s ago`;
+    } else {
+      statusEl.textContent = '';
+    }
+  } catch (e) {
+    console.error('follow status fetch failed', e);
+  }
+}
 </script>
 </body>
 </html>

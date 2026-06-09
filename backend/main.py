@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from . import board_state, cost_tracker, daily_history, faa_registry, pause_state, potus_schedule, scheduled_profiles, settings_state, sightings_db, watch_list
+from . import board_state, cost_tracker, daily_history, faa_registry, followed_flight, pause_state, potus_schedule, scheduled_profiles, settings_state, sightings_db, watch_list
 from .config import settings
 from .data_pipeline import to_aircraft_view, to_airport_view
 from .enrichment import FlightEnricher
@@ -298,6 +298,96 @@ async def resume():
     """Clear any active pause and start polling/pushing again immediately."""
     pause_state.resume_now()
     return {"paused": False, "message": "VestaSpotter resumed."}
+
+
+@app.post("/api/followed/verify")
+async def followed_verify(ident: str, date: str):
+    """Look up a flight by ident + date, return a preview without committing.
+
+    `ident` accepts FA's ICAO callsign (AAL1) or IATA-style (AA1).
+    `date` is "YYYY-MM-DD" in the origin airport's local timezone.
+    """
+    ident = (ident or "").upper().strip()
+    date = (date or "").strip()
+    if not ident or not date:
+        return {"matched": False, "error": "ident and date are required"}
+    enricher: FlightEnricher = app.state.enricher
+    instances = await enricher.get_flight_instances(ident)
+    if not instances:
+        return {"matched": False, "error": f"no flights found for {ident}"}
+    matched = followed_flight.pick_instance_by_date(instances, date)
+    if not matched:
+        return {"matched": False, "error": f"no {ident} on {date}"}
+    origin = matched.get("origin") or {}
+    dest = matched.get("destination") or {}
+    return {
+        "matched": True,
+        "fa_flight_id": matched.get("fa_flight_id"),
+        "preview": {
+            "ident_display": (matched.get("operator_iata") or "") + (matched.get("flight_number") or ""),
+            "operator_iata": matched.get("operator_iata"),
+            "flight_number": matched.get("flight_number"),
+            "origin": origin.get("code_iata"),
+            "destination": dest.get("code_iata"),
+            "scheduled_out": matched.get("scheduled_out"),
+            "scheduled_in":  matched.get("scheduled_in"),
+            "aircraft_type": matched.get("aircraft_type"),
+            "registration":  matched.get("registration"),
+            "status":        matched.get("status"),
+        },
+    }
+
+
+@app.post("/api/followed/start")
+async def followed_start(ident: str, date: str, label: str = ""):
+    """Commit to following a verified flight. Re-fetches FA to ensure freshness."""
+    ident = (ident or "").upper().strip()
+    date = (date or "").strip()
+    enricher: FlightEnricher = app.state.enricher
+    instances = await enricher.get_flight_instances(ident)
+    matched = followed_flight.pick_instance_by_date(instances, date)
+    if not matched:
+        return {"ok": False, "error": "could not re-verify flight"}
+    flight = followed_flight.build_from_fa(matched, user_ident=ident, user_date=date, label=label)
+    followed_flight.set_current(flight)
+    return {"ok": True, "fa_flight_id": flight.fa_flight_id, "label": flight.label}
+
+
+@app.post("/api/followed/stop")
+async def followed_stop():
+    followed_flight.clear()
+    return {"ok": True}
+
+
+@app.get("/api/followed/status")
+async def followed_status():
+    """Current state for the dashboard's tracking card. Polled regularly."""
+    flight = followed_flight.get_current()
+    if flight is None:
+        return {"active": False}
+    phase = flight.derive_phase()
+    return {
+        "active": phase != followed_flight.Phase.IDLE,
+        "phase": phase.value,
+        "user_ident":  flight.user_ident,
+        "label":       flight.label,
+        "operator_iata":  flight.operator_iata,
+        "flight_number":  flight.flight_number,
+        "origin":      flight.origin_iata,
+        "destination": flight.destination_iata,
+        "aircraft_type": flight.aircraft_type,
+        "progress_percent":      flight.progress_percent,
+        "time_until_departure_s": flight.time_until_departure_seconds(),
+        "time_until_arrival_s":   flight.time_until_arrival_seconds(),
+        "arrival_delay_minutes":  flight.arrival_delay_minutes(),
+        "altitude_ft": (flight.last_altitude_100s_ft * 100) if flight.last_altitude_100s_ft else None,
+        "groundspeed_kt": flight.last_groundspeed_kt,
+        "city": flight.last_city,
+        "gate_destination": flight.gate_destination,
+        "baggage_claim": flight.baggage_claim,
+        "status_text": flight.status,
+        "last_poll_at": flight.last_poll_at,
+    }
 
 
 @app.get("/health")
