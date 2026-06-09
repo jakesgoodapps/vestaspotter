@@ -435,6 +435,55 @@ class FlightEnricher:
         self._airport_status_cache[airport_code] = (status, now + _AIRPORT_STATUS_TTL)
         return status
 
+    async def get_flight_instances(self, ident: str) -> list[dict]:
+        """Fetch all instances of a flight from /flights/{ident}.
+
+        Returns the raw list of flight dicts (one per recent day). Caller
+        is responsible for picking the right instance — e.g. by matching
+        scheduled_out date in the origin airport's local timezone.
+
+        Used by the followed-flight tracker, NOT by per-overhead enrichment.
+        """
+        if not self.api_key:
+            return []
+        url = f"{self.AEROAPI_BASE}/flights/{ident}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers={"x-apikey": self.api_key}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    cost_tracker.record("/flights/{ident}")
+                    if resp.status != 200:
+                        print(f"FA /flights/{ident} failed: HTTP {resp.status}")
+                        return []
+                    data = await resp.json()
+                    return data.get("flights", [])
+        except Exception as e:
+            print(f"FA /flights/{ident} failed: {e}")
+            return []
+
+    async def get_flight_position(self, fa_flight_id: str) -> Optional[dict]:
+        """Fetch live position for a specific flight instance.
+
+        Returns the last_position dict from /flights/{fa_flight_id}/position
+        with keys: altitude (hundreds of ft), altitude_change ('C'/'D'/'-'),
+        groundspeed (kt), heading, latitude, longitude, timestamp.
+
+        Returns None if no position data (flight not airborne yet or just landed).
+        """
+        if not self.api_key:
+            return None
+        url = f"{self.AEROAPI_BASE}/flights/{fa_flight_id}/position"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers={"x-apikey": self.api_key}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    cost_tracker.record("/flights/{ident}/position")
+                    if resp.status != 200:
+                        return None
+                    data = await resp.json()
+                    return data.get("last_position")
+        except Exception as e:
+            print(f"FA /position for {fa_flight_id} failed: {e}")
+            return None
+
 
 def _now() -> float:
     return datetime.now(timezone.utc).timestamp()

@@ -25,6 +25,7 @@ _LOCAL_TZ = ZoneInfo(_settings.local_timezone)
 # Keep this list in sync with whatever endpoints enrichment.py actually hits.
 ENDPOINT_COSTS = {
     "/flights/{ident}": 0.005,
+    "/flights/{ident}/position": 0.005,  # est — verify against FA dashboard after first followed-flight session
     "/aircraft/{reg}/owner": 0.002,
     "/aircraft/types/{type}": 0.10,
     "/airports/{id}/delays": 0.01,
