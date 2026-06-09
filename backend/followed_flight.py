@@ -29,7 +29,8 @@ from .config import settings as _settings
 _LOCAL_TZ = ZoneInfo(_settings.local_timezone)
 
 _DATA_DIR = Path(os.environ.get("VESTASPOTTER_DATA_DIR") or Path(__file__).resolve().parent / "data")
-_STATE_PATH = _DATA_DIR / "followed_flight.json"
+_STATE_PATH = _DATA_DIR / "followed_flights.json"  # v0.2.0: plural, list of entries
+_LEGACY_STATE_PATH = _DATA_DIR / "followed_flight.json"  # v0.1.x — auto-migrate on load
 _lock = Lock()
 
 
@@ -270,96 +271,220 @@ class FollowedFlight:
 
 
 # ---------------------------------------------------------------------------
-# Module-level state + persistence
+# Phase priority — used to pick which queued flight currently owns the board
 # ---------------------------------------------------------------------------
 
-_current: Optional[FollowedFlight] = None
+# Higher = wins. Reflects "most-happening" intuition: a plane that just landed
+# is at the climax of the trip; an active plane in approach is the most
+# emotional moment; a plane in pre-departure can wait its turn.
+PHASE_PRIORITY = {
+    Phase.LANDED:       100,
+    Phase.APPROACH:      90,
+    Phase.AIRBORNE:      80,
+    Phase.DIVERTED:      80,  # urgent, same as airborne
+    Phase.POST_LANDED:   70,
+    Phase.TAXI_OUT:      60,
+    Phase.BOARDING:      50,
+    Phase.CANCELLED:     40,
+    Phase.PRE_FLIGHT:    30,
+    Phase.IDLE:           0,
+}
+
+
+# ---------------------------------------------------------------------------
+# Module-level state + persistence (v0.2.0: queue of flights, not single)
+# ---------------------------------------------------------------------------
+
+# Keyed by fa_flight_id so we can dedupe + remove specifically.
+_queue: dict[str, FollowedFlight] = {}
+_queue_loaded = False
+
+
+def list_all() -> list[FollowedFlight]:
+    """All currently-queued flights (any phase, including IDLE awaiting prune)."""
+    _ensure_loaded()
+    return list(_queue.values())
+
+
+def get_by_id(fa_flight_id: str) -> Optional[FollowedFlight]:
+    _ensure_loaded()
+    return _queue.get(fa_flight_id)
+
+
+def add(flight: FollowedFlight) -> bool:
+    """Append a flight to the queue. Returns False if already present."""
+    _ensure_loaded()
+    with _lock:
+        if flight.fa_flight_id in _queue:
+            return False
+        _queue[flight.fa_flight_id] = flight
+        _save_to_disk()
+    return True
+
+
+def update_flight(flight: FollowedFlight) -> None:
+    """Persist updates to an in-place flight object (re-saves the whole queue)."""
+    _ensure_loaded()
+    with _lock:
+        _queue[flight.fa_flight_id] = flight
+        _save_to_disk()
+
+
+def remove(fa_flight_id: str) -> bool:
+    """Remove one flight by FA flight id. Returns False if not found."""
+    _ensure_loaded()
+    with _lock:
+        if fa_flight_id not in _queue:
+            return False
+        del _queue[fa_flight_id]
+        _save_to_disk()
+    return True
+
+
+def clear_all() -> None:
+    """Drop every flight from the queue."""
+    _ensure_loaded()
+    with _lock:
+        _queue.clear()
+        _save_to_disk()
+
+
+def prune_idle() -> int:
+    """Remove any flights that have completed POST_LANDED + cooldown (IDLE).
+    Returns count removed."""
+    _ensure_loaded()
+    removed_ids = [fid for fid, f in _queue.items() if f.derive_phase() == Phase.IDLE]
+    if not removed_ids:
+        return 0
+    with _lock:
+        for fid in removed_ids:
+            del _queue[fid]
+        _save_to_disk()
+    return len(removed_ids)
 
 
 def is_active() -> bool:
-    """True if a followed flight is being tracked at all (not IDLE).
-
-    "Being tracked" = stored in state, refreshing from FA, visible in the
-    dashboard. NOT the same as "rendering to the board" — see is_active_for_render().
-    """
-    f = get_current()
-    if f is None:
-        return False
-    return f.derive_phase() != Phase.IDLE
+    """True if ANY queued flight is being tracked (regardless of render gate)."""
+    return any(f.derive_phase() != Phase.IDLE for f in list_all())
 
 
 def is_active_for_render() -> bool:
-    """True if a followed flight should currently OWN the board.
+    """True if the currently-active-for-render flight exists (board takeover)."""
+    return get_active_for_render() is not None
 
-    Differs from is_active() during the PRE_FLIGHT pre-render window: a flight
-    can be queued and refreshing in the background, but the board stays in
-    overhead mode until we're inside PRE_FLIGHT_RENDER_WINDOW_SECONDS of
-    scheduled departure. Edge cases (CANCELLED, DIVERTED, BOARDING onward) all
-    render immediately — only PRE_FLIGHT is gated.
+
+def get_active_for_render() -> Optional[FollowedFlight]:
+    """Pick the single queued flight that should currently OWN the board.
+
+    Logic:
+      1. Filter to flights whose phase is past the PRE_FLIGHT render gate
+         (PRE_FLIGHT only counts if within PRE_FLIGHT_RENDER_WINDOW_SECONDS;
+         IDLE never counts).
+      2. Sort by PHASE_PRIORITY (LANDED highest), ties broken by earliest
+         estimated arrival (the flight that will finish first wins so the
+         board can move on to the next queued).
+      3. Return the winner, or None if no eligible flight.
     """
-    f = get_current()
-    if f is None:
-        return False
-    phase = f.derive_phase()
+    eligible = [f for f in list_all() if _is_eligible_for_render(f)]
+    if not eligible:
+        return None
+    def _sort_key(f: FollowedFlight):
+        priority = PHASE_PRIORITY.get(f.derive_phase(), 0)
+        eta = f.time_until_arrival_seconds() or 10**9
+        return (-priority, eta)  # highest priority first, then earliest ETA
+    eligible.sort(key=_sort_key)
+    return eligible[0]
+
+
+def _is_eligible_for_render(flight: FollowedFlight) -> bool:
+    """Is this individual flight currently eligible to render? (Per-flight gate.)"""
+    phase = flight.derive_phase()
     if phase == Phase.IDLE:
         return False
     if phase != Phase.PRE_FLIGHT:
         return True
-    # PRE_FLIGHT — only render if within the window
-    time_until_dep = f.time_until_departure_seconds()
+    time_until_dep = flight.time_until_departure_seconds()
     if time_until_dep is None:
-        return True  # No departure time? Render anyway, better to show something
+        return True
     return time_until_dep <= PRE_FLIGHT_RENDER_WINDOW_SECONDS
 
 
+# ---- Legacy single-flight API (kept as shims for backward compatibility) ----
+
 def get_current() -> Optional[FollowedFlight]:
-    """Get the in-memory current followed flight, loading from disk if needed."""
-    global _current
-    if _current is None:
-        _current = _load_from_disk()
-    return _current
+    """DEPRECATED in v0.2.0 — returns whichever flight is currently rendering."""
+    return get_active_for_render()
 
 
 def set_current(flight: Optional[FollowedFlight]) -> None:
-    """Replace the in-memory followed flight and persist to disk."""
-    global _current
-    with _lock:
-        _current = flight
-        if flight is None:
-            _clear_disk()
-        else:
-            _save_to_disk(flight)
+    """DEPRECATED in v0.2.0 — replaces entire queue with one flight (or clears it)."""
+    clear_all()
+    if flight is not None:
+        add(flight)
 
 
 def clear() -> None:
-    """Stop following whatever flight is active."""
-    set_current(None)
+    """DEPRECATED in v0.2.0 — clears the entire queue. Use remove(fid) for specific."""
+    clear_all()
 
 
 # ---------------------------------------------------------------------------
 # Disk persistence
 # ---------------------------------------------------------------------------
 
-def _save_to_disk(flight: FollowedFlight) -> None:
+def _ensure_loaded() -> None:
+    global _queue_loaded
+    if _queue_loaded:
+        return
+    _load_from_disk()
+    _queue_loaded = True
+
+
+def _save_to_disk() -> None:
     _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {fid: asdict(f) for fid, f in _queue.items()}
     tmp = _STATE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(asdict(flight), indent=2, default=str))
+    tmp.write_text(json.dumps(payload, indent=2, default=str))
     tmp.replace(_STATE_PATH)
 
 
-def _clear_disk() -> None:
-    if _STATE_PATH.exists():
-        _STATE_PATH.unlink()
+def _load_from_disk() -> None:
+    """Populate _queue from disk. Auto-migrates v0.1.x single-flight file
+    (data/followed_flight.json) if found."""
+    global _queue
+    _queue = {}
 
+    # Migrate v0.1.x legacy file if present and the new file isn't
+    if _LEGACY_STATE_PATH.exists() and not _STATE_PATH.exists():
+        try:
+            data = json.loads(_LEGACY_STATE_PATH.read_text())
+            legacy_flight = _hydrate_flight(data)
+            if legacy_flight is not None:
+                _queue[legacy_flight.fa_flight_id] = legacy_flight
+                _save_to_disk()
+                print(f"followed_flight: migrated v0.1.x state ({legacy_flight.fa_flight_id}) to v0.2.0 queue")
+            _LEGACY_STATE_PATH.unlink()
+        except Exception as e:
+            print(f"followed_flight: legacy migration failed: {e}")
+        return
 
-def _load_from_disk() -> Optional[FollowedFlight]:
     if not _STATE_PATH.exists():
-        return None
+        return
     try:
-        data = json.loads(_STATE_PATH.read_text())
-        # Backfill any new fields added since this file was written
+        payload = json.loads(_STATE_PATH.read_text())
+        # New format: dict keyed by fa_flight_id
+        for fid, flight_data in payload.items():
+            f = _hydrate_flight(flight_data)
+            if f is not None:
+                _queue[fid] = f
+    except Exception as e:
+        print(f"followed_flight: failed to load queue: {e}")
+
+
+def _hydrate_flight(data: dict) -> Optional[FollowedFlight]:
+    """Build a FollowedFlight from a dict, tolerating missing/extra fields."""
+    try:
         flight = FollowedFlight(**{k: v for k, v in data.items() if k in FollowedFlight.__dataclass_fields__})
-        # Ensure progress_tile_colors is the right length (defensive against version drift)
         if len(flight.progress_tile_colors) != PROGRESS_TILES:
             old = flight.progress_tile_colors
             flight.progress_tile_colors = [None] * PROGRESS_TILES
@@ -367,7 +492,7 @@ def _load_from_disk() -> Optional[FollowedFlight]:
                 flight.progress_tile_colors[i] = v
         return flight
     except Exception as e:
-        print(f"followed_flight: failed to load state from {_STATE_PATH}: {e}")
+        print(f"followed_flight: failed to hydrate flight: {e}")
         return None
 
 
