@@ -338,9 +338,12 @@ async def followed_verify(ident: str, date: str):
     }
 
 
-@app.post("/api/followed/start")
-async def followed_start(ident: str, date: str, label: str = ""):
-    """Commit to following a verified flight. Re-fetches FA to ensure freshness."""
+@app.post("/api/followed/add")
+async def followed_add(ident: str, date: str, label: str = ""):
+    """Append a verified flight to the queue. Re-fetches FA for freshness.
+
+    Returns ok=False if duplicate (same fa_flight_id already in queue).
+    """
     ident = (ident or "").upper().strip()
     date = (date or "").strip()
     enricher: FlightEnricher = app.state.enricher
@@ -349,45 +352,92 @@ async def followed_start(ident: str, date: str, label: str = ""):
     if not matched:
         return {"ok": False, "error": "could not re-verify flight"}
     flight = followed_flight.build_from_fa(matched, user_ident=ident, user_date=date, label=label)
-    followed_flight.set_current(flight)
+    added = followed_flight.add(flight)
+    if not added:
+        return {"ok": False, "error": "this flight is already in your queue"}
     return {"ok": True, "fa_flight_id": flight.fa_flight_id, "label": flight.label}
 
 
-@app.post("/api/followed/stop")
-async def followed_stop():
-    followed_flight.clear()
+# Backwards-compat alias for v0.1.x clients (was /api/followed/start, replaces queue).
+@app.post("/api/followed/start")
+async def followed_start_legacy(ident: str, date: str, label: str = ""):
+    """DEPRECATED: use /api/followed/add. This still works but replaces the
+    entire queue with this one flight (v0.1.x behavior)."""
+    followed_flight.clear_all()
+    return await followed_add(ident=ident, date=date, label=label)
+
+
+@app.post("/api/followed/remove")
+async def followed_remove(fa_flight_id: str):
+    """Remove one flight from the queue by FA flight id."""
+    ok = followed_flight.remove(fa_flight_id)
+    return {"ok": ok}
+
+
+@app.post("/api/followed/clear_all")
+async def followed_clear_all():
+    """Empty the queue completely. Useful for resetting during testing."""
+    followed_flight.clear_all()
     return {"ok": True}
 
 
-@app.get("/api/followed/status")
-async def followed_status():
-    """Current state for the dashboard's tracking card. Polled regularly."""
-    flight = followed_flight.get_current()
-    if flight is None:
-        return {"active": False}
+# Backwards-compat alias for v0.1.x clients (was /api/followed/stop).
+@app.post("/api/followed/stop")
+async def followed_stop_legacy():
+    """DEPRECATED: use /api/followed/remove?fa_flight_id=... or /clear_all."""
+    followed_flight.clear_all()
+    return {"ok": True}
+
+
+def _flight_summary(flight, active_for_render_id: str | None) -> dict:
+    """Project a FollowedFlight to a dict for /api/followed/status responses."""
     phase = flight.derive_phase()
     return {
-        "active": phase != followed_flight.Phase.IDLE,
-        "active_for_render": followed_flight.is_active_for_render(),
-        "phase": phase.value,
-        "user_ident":  flight.user_ident,
-        "label":       flight.label,
+        "fa_flight_id":   flight.fa_flight_id,
+        "user_ident":     flight.user_ident,
+        "label":          flight.label,
         "operator_iata":  flight.operator_iata,
         "flight_number":  flight.flight_number,
-        "origin":      flight.origin_iata,
-        "destination": flight.destination_iata,
-        "aircraft_type": flight.aircraft_type,
-        "progress_percent":      flight.progress_percent,
+        "origin":         flight.origin_iata,
+        "destination":    flight.destination_iata,
+        "aircraft_type":  flight.aircraft_type,
+        "phase":          phase.value,
+        "is_active_for_render": followed_flight._is_eligible_for_render(flight),
+        "is_currently_rendering": flight.fa_flight_id == active_for_render_id,
+        "progress_percent":       flight.progress_percent,
         "time_until_departure_s": flight.time_until_departure_seconds(),
         "time_until_arrival_s":   flight.time_until_arrival_seconds(),
         "arrival_delay_minutes":  flight.arrival_delay_minutes(),
         "altitude_ft": (flight.last_altitude_100s_ft * 100) if flight.last_altitude_100s_ft else None,
         "groundspeed_kt": flight.last_groundspeed_kt,
-        "city": flight.last_city,
+        "city":           flight.last_city,
         "gate_destination": flight.gate_destination,
-        "baggage_claim": flight.baggage_claim,
-        "status_text": flight.status,
-        "last_poll_at": flight.last_poll_at,
+        "baggage_claim":    flight.baggage_claim,
+        "status_text":      flight.status,
+        "last_poll_at":     flight.last_poll_at,
+    }
+
+
+@app.get("/api/followed/status")
+async def followed_status():
+    """Queue state for the dashboard card. Returns the whole queue + which
+    flight is currently rendering (or null if none)."""
+    all_flights = followed_flight.list_all()
+    active = followed_flight.get_active_for_render()
+    active_id = active.fa_flight_id if active else None
+    flights = [_flight_summary(f, active_id) for f in all_flights]
+    # Sort: currently-rendering first, then by render-eligibility, then by departure soonness
+    def _sort_key(s):
+        if s["is_currently_rendering"]:
+            return (0, 0)
+        if s["is_active_for_render"]:
+            return (1, s.get("time_until_arrival_s") or 10**9)
+        return (2, s.get("time_until_departure_s") or 10**9)
+    flights.sort(key=_sort_key)
+    return {
+        "queue_size": len(flights),
+        "active_for_render_id": active_id,
+        "flights": flights,
     }
 
 

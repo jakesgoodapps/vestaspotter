@@ -295,44 +295,23 @@
 
 <!-- Follow a Flight -->
 <div class="card" id="follow-card">
-  <div class="card-title">✈️ Follow a Flight</div>
-  <div id="follow-empty">
-    <div class="sub" style="margin-bottom: 12px">Track a friend or family member's trip in real-time. The board takes over until 30 minutes after they're at the gate.</div>
-    <div style="display: flex; flex-direction: column; gap: 8px">
-      <input id="follow-ident" type="text" placeholder="Flight # (e.g. AA1, UA1234)" autocapitalize="characters" autocomplete="off" style="padding: 8px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px;">
-      <input id="follow-date" type="date" style="padding: 8px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px;">
-      <div style="position: relative">
-        <input id="follow-label" type="text" placeholder="Label for the board (e.g. MOM TO CALI)" maxlength="21" autocapitalize="characters" autocomplete="off" style="padding: 8px; padding-right: 50px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px; width: 100%; box-sizing: border-box;">
-        <span id="follow-label-count" class="sub" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px;">0/21</span>
-      </div>
-      <button class="resume" onclick="verifyFollowFlight()">Verify Flight</button>
+  <div class="card-title">✈️ Follow Flights</div>
+  <div class="sub" style="margin-bottom: 12px">Queue your family + friends' upcoming flights. The board automatically takes over 3 hours before each scheduled departure and runs through landing + baggage.</div>
+
+  <!-- Add form (always visible) -->
+  <div id="follow-form" style="display: flex; flex-direction: column; gap: 8px">
+    <input id="follow-ident" type="text" placeholder="Flight # (e.g. AA1, UA1234)" autocapitalize="characters" autocomplete="off" style="padding: 8px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px;">
+    <input id="follow-date" type="date" style="padding: 8px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px;">
+    <div style="position: relative">
+      <input id="follow-label" type="text" placeholder="Label for the board (e.g. MOM TO CALI)" maxlength="21" autocapitalize="characters" autocomplete="off" style="padding: 8px; padding-right: 50px; background: #1a1f25; border: 1px solid #2a2f35; color: #e6edf3; border-radius: 4px; width: 100%; box-sizing: border-box;">
+      <span id="follow-label-count" class="sub" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px;">0/21</span>
     </div>
-    <div id="follow-verify-result" style="margin-top: 10px"></div>
+    <button class="resume" onclick="verifyFollowFlight()">Verify & Add to Queue</button>
   </div>
-  <div id="follow-active" style="display: none">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
-      <div>
-        <div class="label" style="margin-bottom: 4px"><span id="follow-phase-badge" style="background: #2d6cdf; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; text-transform: uppercase; font-weight: 600">—</span></div>
-        <div class="value big" id="follow-flight-display">—</div>
-        <div class="sub" id="follow-route-display">—</div>
-        <div class="sub" id="follow-label-display" style="margin-top: 4px; font-style: italic">—</div>
-      </div>
-      <button class="danger" onclick="stopFollowFlight()" style="white-space: nowrap">Stop Following</button>
-    </div>
-    <div id="follow-progress-wrap" style="margin-top: 12px; display: none">
-      <div style="display: flex; justify-content: space-between; font-size: 12px; color: #8b949e; margin-bottom: 4px">
-        <span id="follow-progress-pct">0%</span>
-        <span id="follow-progress-eta">—</span>
-      </div>
-      <div style="background: #1a1f25; height: 8px; border-radius: 4px; overflow: hidden">
-        <div id="follow-progress-fill" style="height: 100%; background: linear-gradient(90deg, #2d6cdf, #4d9cef); width: 0%; transition: width 0.5s"></div>
-      </div>
-    </div>
-    <div id="follow-live-stats" style="margin-top: 10px; font-size: 12px; color: #8b949e; display: none">
-      <div><span style="color: #c4cdd6" id="follow-alt">—</span> · <span id="follow-speed">—</span> · <span id="follow-city">—</span></div>
-    </div>
-    <div id="follow-status-text" class="sub" style="margin-top: 8px"></div>
-  </div>
+  <div id="follow-verify-result" style="margin-top: 10px"></div>
+
+  <!-- Queue list (always visible — empty state when no flights) -->
+  <div id="follow-queue" style="margin-top: 16px; border-top: 1px solid #2a2f35; padding-top: 14px"></div>
 </div>
 
 <!-- Today's stats -->
@@ -1132,107 +1111,92 @@ function cancelFollowVerify() {
 async function confirmFollowFlight(ident, date) {
   const label = document.getElementById('follow-label').value || '';
   try {
-    const r = await fetch(`/api/followed/start?ident=${encodeURIComponent(ident)}&date=${encodeURIComponent(date)}&label=${encodeURIComponent(label)}`, { method: 'POST' });
+    const r = await fetch(`/api/followed/add?ident=${encodeURIComponent(ident)}&date=${encodeURIComponent(date)}&label=${encodeURIComponent(label)}`, { method: 'POST' });
     const d = await r.json();
     if (!d.ok) {
-      alert('Could not start following: ' + (d.error || 'unknown error'));
+      alert('Could not add flight: ' + (d.error || 'unknown error'));
       return;
     }
-    // Clear form + transition to active state
     document.getElementById('follow-verify-result').innerHTML = '';
     document.getElementById('follow-ident').value = '';
     document.getElementById('follow-label').value = '';
+    document.getElementById('follow-label-count').textContent = '0/21';
     loadFollowStatus();
   } catch (e) {
-    alert('Start failed: ' + e);
+    alert('Add failed: ' + e);
   }
 }
 
-async function stopFollowFlight() {
-  if (!confirm('Stop following this flight? The board will return to overhead-tracking mode.')) return;
+async function removeFollowFlight(faId, label) {
+  const labelText = label ? `"${label}"` : 'this flight';
+  if (!confirm(`Remove ${labelText} from the queue? If the board is currently rendering it, it will return to overhead mode.`)) return;
   try {
-    await fetch('/api/followed/stop', { method: 'POST' });
+    await fetch(`/api/followed/remove?fa_flight_id=${encodeURIComponent(faId)}`, { method: 'POST' });
     loadFollowStatus();
   } catch (e) {
-    alert('Stop failed: ' + e);
+    alert('Remove failed: ' + e);
   }
+}
+
+function _fmtFollowDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '—';
+  if (seconds < 0) seconds = 0;
+  const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60);
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function _followPhaseBadge(f) {
+  if (!f.is_active_for_render) {
+    return `<span style="background: #b58105; color: white; padding: 2px 8px; border-radius: 3px; font-size: 10px; text-transform: uppercase; font-weight: 600">QUEUED</span>`;
+  }
+  const phase = (f.phase || '').replace('_', ' ').toUpperCase();
+  const bg = f.is_currently_rendering ? '#3fb950' : '#2d6cdf';
+  const prefix = f.is_currently_rendering ? '▶ ON BOARD · ' : '';
+  return `<span style="background: ${bg}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 10px; text-transform: uppercase; font-weight: 600">${prefix}${phase}</span>`;
+}
+
+function _renderFollowEntry(f) {
+  const route = `${f.origin || '?'} → ${f.destination || '?'}`;
+  const identDisplay = `${f.operator_iata || ''}${f.flight_number || ''}`;
+  let progressHTML = '';
+  if (f.progress_percent && f.progress_percent > 0) {
+    progressHTML = `<div style="display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; margin: 8px 0 3px"><span>${f.progress_percent}% complete</span><span>${_fmtFollowDuration(f.time_until_arrival_s)} left</span></div><div style="background: #1a1f25; height: 6px; border-radius: 3px; overflow: hidden"><div style="height: 100%; background: linear-gradient(90deg, #2d6cdf, #4d9cef); width: ${f.progress_percent}%; transition: width 0.5s"></div></div>`;
+  }
+  let liveHTML = '';
+  if (f.altitude_ft || f.groundspeed_kt || f.city) {
+    const parts = [];
+    if (f.altitude_ft) parts.push(`${f.altitude_ft.toLocaleString()}ft`);
+    if (f.groundspeed_kt) parts.push(`${f.groundspeed_kt}kt`);
+    if (f.city) parts.push(f.city);
+    liveHTML = `<div style="font-size: 11px; color: #8b949e; margin-top: 6px">${parts.join(' · ')}</div>`;
+  }
+  let footerText = '';
+  if (!f.is_active_for_render) {
+    const t = f.time_until_departure_s || 0;
+    const hoursUntilRender = Math.max(0, t - 3 * 3600);
+    footerText = `Departs in <strong>${_fmtFollowDuration(t)}</strong> · board takes over in ${_fmtFollowDuration(hoursUntilRender)}`;
+  } else if (f.phase === 'pre_flight' || f.phase === 'boarding' || f.phase === 'taxi_out') {
+    footerText = `Departs in ${_fmtFollowDuration(f.time_until_departure_s)}${f.gate_destination ? ' · gate ' + f.gate_destination : ''}`;
+  } else if (f.phase === 'post_landed' && f.baggage_claim) {
+    footerText = `Baggage claim ${f.baggage_claim}${f.gate_destination ? ' · gate ' + f.gate_destination : ''}`;
+  } else if (f.last_poll_at) {
+    const ago = Math.round((Date.now() - new Date(f.last_poll_at).getTime()) / 1000);
+    footerText = `Updated ${ago}s ago`;
+  }
+  const safeLabel = (f.label || '').replace(/'/g, "\\'");
+  return `<div style="background: ${f.is_currently_rendering ? '#1a2520' : '#1a1f25'}; border: 1px solid ${f.is_currently_rendering ? '#2a4a3a' : '#2a2f35'}; border-radius: 5px; padding: 12px; margin-bottom: 10px"><div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px"><div style="flex: 1; min-width: 0"><div style="margin-bottom: 6px">${_followPhaseBadge(f)}</div><div style="font-weight: 600; font-size: 15px">${identDisplay} · ${route}</div>${f.label ? `<div style="font-style: italic; font-size: 12px; color: #8b949e; margin-top: 2px">"${f.label}"</div>` : ''}</div><button class="watch-x" title="Remove from queue" onclick="removeFollowFlight('${f.fa_flight_id}', '${safeLabel}')">×</button></div>${progressHTML}${liveHTML}${footerText ? `<div class="sub" style="margin-top: 8px; font-size: 12px">${footerText}</div>` : ''}</div>`;
 }
 
 async function loadFollowStatus() {
   try {
     const r = await fetch('/api/followed/status', { cache: 'no-store' });
     const d = await r.json();
-    const empty = document.getElementById('follow-empty');
-    const active = document.getElementById('follow-active');
-    if (!d.active) {
-      empty.style.display = '';
-      active.style.display = 'none';
+    const container = document.getElementById('follow-queue');
+    if (!d.flights || d.flights.length === 0) {
+      container.innerHTML = `<div class="sub" style="text-align: center; padding: 14px 0">No flights queued. Add one above to start tracking.</div>`;
       return;
     }
-    empty.style.display = 'none';
-    active.style.display = '';
-    // Phase badge: tint amber when queued-but-not-rendering, blue otherwise
-    const badge = document.getElementById('follow-phase-badge');
-    const queued = d.active && !d.active_for_render;
-    if (queued) {
-      badge.style.background = '#b58105';
-      badge.textContent = 'QUEUED';
-    } else {
-      badge.style.background = '#2d6cdf';
-      badge.textContent = (d.phase || '').replace('_', ' ');
-    }
-    document.getElementById('follow-flight-display').textContent = `${d.operator_iata || ''}${d.flight_number || ''}  ${d.origin} → ${d.destination}`;
-    document.getElementById('follow-route-display').textContent = `${d.aircraft_type || '?'} · ${d.status_text || ''}`;
-    document.getElementById('follow-label-display').textContent = d.label ? `"${d.label}"` : '';
-
-    // Progress bar — only show if we have meaningful progress
-    const wrap = document.getElementById('follow-progress-wrap');
-    if (d.progress_percent && d.progress_percent > 0) {
-      wrap.style.display = '';
-      document.getElementById('follow-progress-fill').style.width = `${d.progress_percent}%`;
-      document.getElementById('follow-progress-pct').textContent = `${d.progress_percent}% complete`;
-      const remaining_s = d.time_until_arrival_s;
-      if (remaining_s && remaining_s > 0) {
-        const h = Math.floor(remaining_s / 3600), m = Math.floor((remaining_s % 3600) / 60);
-        document.getElementById('follow-progress-eta').textContent = h ? `${h}h ${m}m left` : `${m}m left`;
-      } else {
-        document.getElementById('follow-progress-eta').textContent = '—';
-      }
-    } else {
-      wrap.style.display = 'none';
-    }
-
-    // Live in-air stats
-    const stats = document.getElementById('follow-live-stats');
-    if (d.altitude_ft || d.groundspeed_kt || d.city) {
-      stats.style.display = '';
-      document.getElementById('follow-alt').textContent = d.altitude_ft ? `${d.altitude_ft.toLocaleString()} ft` : '—';
-      document.getElementById('follow-speed').textContent = d.groundspeed_kt ? `${d.groundspeed_kt} kt` : '—';
-      document.getElementById('follow-city').textContent = d.city || '—';
-    } else {
-      stats.style.display = 'none';
-    }
-
-    // Status / countdown text
-    const statusEl = document.getElementById('follow-status-text');
-    if (queued) {
-      const t = d.time_until_departure_s || 0;
-      const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
-      const hoursUntilRender = Math.max(0, t - 3 * 3600);
-      const rh = Math.floor(hoursUntilRender / 3600), rm = Math.floor((hoursUntilRender % 3600) / 60);
-      statusEl.innerHTML = `Departs in <strong>${h ? h + 'h ' : ''}${m}m</strong> · board takes over in ${rh ? rh + 'h ' : ''}${rm}m (3h before departure)`;
-    } else if (d.time_until_departure_s && d.time_until_departure_s > 0 && d.phase !== 'airborne') {
-      const t = d.time_until_departure_s;
-      const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60);
-      statusEl.textContent = `Departs in ${h ? h + 'h ' : ''}${m}m · gate ${d.gate_destination || ''}`;
-    } else if (d.phase === 'post_landed' && d.baggage_claim) {
-      statusEl.textContent = `Baggage claim ${d.baggage_claim} · gate ${d.gate_destination || ''}`;
-    } else if (d.last_poll_at) {
-      const ago = Math.round((Date.now() - new Date(d.last_poll_at).getTime()) / 1000);
-      statusEl.textContent = `Updated ${ago}s ago`;
-    } else {
-      statusEl.textContent = '';
-    }
+    container.innerHTML = d.flights.map(_renderFollowEntry).join('');
   } catch (e) {
     console.error('follow status fetch failed', e);
   }
