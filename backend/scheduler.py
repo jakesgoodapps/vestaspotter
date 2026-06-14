@@ -370,6 +370,7 @@ async def _poll_followed_flight(flight, enricher: FlightEnricher) -> None:
                         flight.last_altitude_100s_ft,
                     )
                     flight.update_progress_tile(severity)
+                    flight.current_weather_severity = severity.value
                 except Exception as e:
                     print(f"turbulence lookup failed: {e}")
 

@@ -161,6 +161,7 @@ class FollowedFlight:
     last_altitude_change:  Optional[str] = None    # 'C', 'D', '-'
     last_position_time:    Optional[str] = None    # ISO UTC
     last_city:             Optional[str] = None    # from Nominatim
+    current_weather_severity: Optional[str] = None # one of WeatherSeverity.value, from AWC turbulence
 
     # Weather history along the route. Index 0 = closest to origin,
     # index PROGRESS_TILES-1 = closest to destination. None = untraversed.

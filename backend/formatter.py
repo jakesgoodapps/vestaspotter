@@ -457,19 +457,48 @@ def format_taxi_board(flight) -> list[list[int]]:
 
 
 def format_airborne_board(flight) -> list[list[int]]:
-    """AIRBORNE: alt + speed + city below + countdown + frontier weather bar."""
+    """AIRBORNE: alt + speed + city below + countdown + weather text + frontier bar.
+
+    Row 4 = "{time left}" + weather tile + weather text. Always rendered (defaults
+    to SMOOTH/blue when no SIGMETs match) so the dashboard signals "weather IS
+    being checked" rather than going visually blank.
+    """
     alt_ft = (flight.last_altitude_100s_ft or 0) * 100
     spd    = flight.last_groundspeed_kt or 0
     city   = (flight.last_city or "").upper()[:18] or "OVER THE OCEAN"
     remaining = _duration_str(flight.time_until_arrival_seconds())
+    weather_tile, weather_text = _weather_indicator(flight.current_weather_severity)
+
+    # Row 4 layout: "TIME LEFT" left-padded to 11 cols, weather tile at col 12,
+    # weather text right-justified in remaining 10 cols (cols 13-22).
+    row4 = blank_row()
+    write_text(row4, 0, f"{remaining} LEFT"[:11])
+    row4[11] = weather_tile
+    write_text(row4, 22 - len(weather_text), weather_text)
+
     return [
         _airline_route_row(flight),
         _row_text(f"{alt_ft}FT".ljust(11) + f"{spd}KT".rjust(11)),
         _row_text(f"OVER  {city}"),
-        _row_text(f"{remaining} LEFT".ljust(13) + f"{flight.progress_percent}% DONE".rjust(9)),
+        row4,
         _progress_bar_row(flight),
         _label_row(flight.label),
     ]
+
+
+# Map followed_flight.WeatherSeverity.value → (tile code, short label ≤10 chars)
+_WEATHER_INDICATOR = {
+    "smooth":     (GREEN,  "SMOOTH"),
+    "light_turb": (YELLOW, "LIGHT TURB"),
+    "moderate":   (ORANGE, "MOD TURB"),
+    "severe":     (RED,    "SEV TURB"),
+}
+
+
+def _weather_indicator(severity_value: str | None) -> tuple[int, str]:
+    """Return (tile_code, short_label) for the row-4 weather indicator.
+    Defaults to SMOOTH/green if severity is unknown or None."""
+    return _WEATHER_INDICATOR.get(severity_value or "smooth", _WEATHER_INDICATOR["smooth"])
 
 
 def format_approach_board(flight) -> list[list[int]]:
