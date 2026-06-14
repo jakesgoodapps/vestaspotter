@@ -35,6 +35,8 @@ AIRLINE_COLORS: dict[str, int] = {
     "QX": GREEN,      # Horizon (Alaska)
     "G7": ORANGE,     # GoJet
     "EM": RED,        # Empire (American)
+    # International carriers
+    "SQ": BLUE,       # Singapore Airlines
 }
 
 

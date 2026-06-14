@@ -53,6 +53,15 @@ ARR  945P // 950P 🟨+5M
 
 📖 **See [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md)** for a complete guide on what to put in these files, where to find livery data, and how to research what's rare at YOUR specific airport. A starter template ships at `backend/airport_rare_TEMPLATE.yaml`.
 
+**Follow Flights** (track family/friends' trips end-to-end)
+- Queue any number of upcoming flights via the dashboard (flight # + date + custom label)
+- Board auto-takes-over 3 hours before each scheduled departure
+- Cycles through every phase: PRE_FLIGHT → BOARDING → TAXI → AIRBORNE → APPROACH → LANDED → POST_LANDED
+- AIRBORNE check-ins every 15 min with live altitude, speed, "city below" via reverse geocode, and a 16-tile progress bar from origin → destination
+- Real-time turbulence indicator from AWC SIGMET data — frontier tile + row 4 text both color-coded (smooth/light/mod/severe). Tiles to the left of the frontier preserve historical weather, so the bar becomes a visible flight log
+- Handles delays, cancellations, diversions, gate changes, baggage claim
+- Auto-removes from queue 30 min after gate arrival; next queued flight takes over (or board returns to overhead mode)
+
 **Optional: POTUS detector** (DC-area users)
 - Detects when Park Police helicopters do orbital patrol patterns over the White House
 - Cross-references factba.se's POTUS schedule to differentiate real movements from routine drills
