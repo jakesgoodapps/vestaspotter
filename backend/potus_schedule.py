@@ -67,7 +67,8 @@ def _short_destination(raw: Optional[str]) -> str:
 def _extract_destination(details: str) -> Optional[str]:
     if not details:
         return None
-    m = re.search(r"en route to\s+(.+?)(?:\.|$)", details, re.IGNORECASE)
+    # factba.se inconsistently writes "en route X" vs "en route to X" — accept both
+    m = re.search(r"en route(?:\s+to)?\s+(.+?)(?:\.|$)", details, re.IGNORECASE)
     if not m:
         return None
     raw = m.group(1).strip().rstrip(".,")
@@ -198,8 +199,10 @@ def lookup_nearby_movement(now_dt: Optional[datetime] = None) -> Optional[dict]:
     today = now_dt.strftime("%Y-%m-%d")
     tomorrow = (now_dt + timedelta(days=1)).strftime("%Y-%m-%d")
     candidates = []
+    tbd_today = []   # WH-movement entries for TODAY whose time isn't published yet
     for entry in cal:
-        if entry.get("date") not in (today, tomorrow):
+        date_val = entry.get("date")
+        if date_val not in (today, tomorrow):
             continue
         det = (entry.get("details") or "").lower()
         if "departs the white house" in det:
@@ -212,6 +215,15 @@ def lookup_nearby_movement(now_dt: Optional[datetime] = None) -> Optional[dict]:
             continue
         sched = _parse_entry_time(entry["date"], entry.get("time", "00:00:00"))
         if not sched:
+            # TBD movement entry — confirms trip is scheduled today even though
+            # the exact time isn't announced yet. Kept as a fallback for when
+            # no time-windowed match is found (typical for TBD-only days).
+            if date_val == today:
+                tbd_today.append({
+                    "kind": kind,
+                    "destination": dest,
+                    "details": entry.get("details", ""),
+                })
             continue
         candidates.append({
             "kind": kind,
@@ -227,20 +239,37 @@ def lookup_nearby_movement(now_dt: Optional[datetime] = None) -> Optional[dict]:
         if diff < best_diff:
             best = c
             best_diff = diff
-    if not best:
-        return None
-    minutes_until = int((best["scheduled_at"] - now_dt).total_seconds() // 60)
-    final_dest = None
-    if best["kind"] == "departure":
-        final_dest = _find_final_destination(cal, best["scheduled_at"], best["destination"])
-    return {
-        "kind": best["kind"],
-        "destination": best["destination"],
-        "final_destination": final_dest,
-        "scheduled_at_iso": best["scheduled_at"].isoformat(),
-        "minutes_until": minutes_until,
-        "details": best["details"],
-    }
+
+    if best:
+        minutes_until = int((best["scheduled_at"] - now_dt).total_seconds() // 60)
+        final_dest = None
+        if best["kind"] == "departure":
+            final_dest = _find_final_destination(cal, best["scheduled_at"], best["destination"])
+        return {
+            "kind": best["kind"],
+            "destination": best["destination"],
+            "final_destination": final_dest,
+            "scheduled_at_iso": best["scheduled_at"].isoformat(),
+            "minutes_until": minutes_until,
+            "details": best["details"],
+            "is_tbd": False,
+        }
+
+    # Fall back to TBD: a movement IS scheduled today, time just isn't published.
+    # Prefer departure over arrival (helo typically circles before departures).
+    if tbd_today:
+        tbd_pick = next((c for c in tbd_today if c["kind"] == "departure"), tbd_today[0])
+        return {
+            "kind": tbd_pick["kind"],
+            "destination": tbd_pick["destination"],
+            "final_destination": None,
+            "scheduled_at_iso": None,
+            "minutes_until": None,
+            "details": tbd_pick["details"],
+            "is_tbd": True,
+        }
+
+    return None
 
 
 def cache_age_seconds() -> Optional[int]:

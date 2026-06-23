@@ -447,15 +447,18 @@ async def _push_potus_board(
 ) -> None:
     """Render and push the POTUS heads-up or imminent board.
 
-    Two flavors depending on whether factba.se confirms a real POTUS trip:
-      - Schedule-matched → patriotic POTUS HEADS UP / POTUS IMMINENT board
-      - No schedule match → 'drill suspected' / 'helo leaving, false alarm' board.
-        Also marks the detector to use shortened IMMINENT+POST so the board
+    Three flavors depending on what factba.se says:
+      - Time-scheduled match → patriotic POTUS HEADS UP / POTUS IMMINENT
+      - TBD movement match  → "POTUS TRIP TODAY · TIME TBD" (still real, just
+        no published time yet — common for unannounced trips)
+      - No match            → 'drill suspected' / 'helo leaving, false alarm'.
+        Marks the detector for shortened IMMINENT+POST timers so the board
         releases back to normal flight tracking in ~2min instead of 25min.
     """
     callsign = det_state.active_callsign or "(unknown)"
     sched = potus_schedule.lookup_nearby_movement()
-    drill = sched is None  # no scheduled WH trip → probably routine patrol
+    drill = sched is None  # no scheduled WH trip at all → probably routine patrol
+    is_tbd = bool(sched and sched.get("is_tbd"))
 
     def _dep_lines(s):
         final = s.get("final_destination")
@@ -475,6 +478,20 @@ async def _push_potus_board(
                 line3="LIKELY ROUTINE DRILL",
                 footer="(PROBABLY NOT POTUS)",
             )
+        elif is_tbd:
+            dest = sched.get("destination") or ""
+            if sched["kind"] == "departure" and dest:
+                l2 = f"DEP TO {dest}"[:22]
+            elif sched["kind"] == "departure":
+                l2 = "DEPARTURE SCHEDULED"
+            else:
+                l2 = "ARRIVAL SCHEDULED"
+            matrix = format_potus_confirmed_board(
+                title="POTUS HEADS UP",
+                line2=l2,
+                line3="EXACT TIME TBD",
+                footer="WATCH THE WINDOW",
+            )
         else:
             if sched["kind"] == "departure":
                 l2, l3_dest = _dep_lines(sched)
@@ -491,6 +508,20 @@ async def _push_potus_board(
                 line3="ENJOY THE QUIET",
                 footer="(NOT POTUS AFTER ALL)",
             )
+        elif is_tbd:
+            dest = sched.get("destination") or ""
+            if sched["kind"] == "departure" and dest:
+                l2 = f"DEP TO {dest}"[:22]
+            elif sched["kind"] == "departure":
+                l2 = "DEPARTURE SCHEDULED"
+            else:
+                l2 = "ARRIVAL SCHEDULED"
+            matrix = format_potus_imminent_board(
+                title="POTUS IMMINENT",
+                line2=l2,
+                line3="LOOK NOW",
+                footer="(SCHED TIME TBD)",
+            )
         else:
             if sched["kind"] == "departure":
                 l2, l3_dest = _dep_lines(sched)
@@ -504,7 +535,12 @@ async def _push_potus_board(
     state.last_push_ts = time.time()
     state.last_render_matrix = matrix
     board_state.save(matrix, None, False)
-    mode = "drill" if drill or det_state.is_drill_suspected else "potus"
+    if drill or det_state.is_drill_suspected:
+        mode = "drill"
+    elif is_tbd:
+        mode = "potus-tbd"
+    else:
+        mode = "potus"
     sched_tag = f" sched={sched['kind']}→{sched.get('destination','?')}" if sched else ""
     print(f"pushed POTUS {det_state.state} board ({mode}, heli={callsign}{sched_tag})")
 
