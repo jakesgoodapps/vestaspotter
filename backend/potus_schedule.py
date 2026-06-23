@@ -35,7 +35,8 @@ LOOKUP_WINDOW_MINUTES = 90    # how far +/- to search around "now"
 from .config import settings as _settings
 _LOCAL_TZ = ZoneInfo(_settings.local_timezone)
 
-# Friendly truncations for common destinations (must fit row 5's 22-char board cell)
+# Friendly truncations for common destinations (must fit row 5's 22-char board cell,
+# minus the "DEP TO " or "VIA " prefix — practical budget ~15 chars).
 DESTINATION_SHORTNAMES = {
     "joint base andrews": "ANDREWS",
     "the capitol": "CAPITOL",
@@ -47,7 +48,57 @@ DESTINATION_SHORTNAMES = {
     "camp david": "CAMP DAVID",
     "trump national golf club bedminster": "BEDMINSTER",
     "mar-a-lago": "MAR-A-LAGO",
+    "trump international golf club": "TRUMP GOLF",
+    "trump tower": "TRUMP TOWER",
+    "ronald reagan washington national airport": "DCA",
+    "dulles international airport": "IAD",
 }
+
+# Full state name → 2-letter abbreviation. Used to compress "City, StateName" →
+# "CITY, ST" so factba.se's verbose location strings fit the board.
+# (Mirrors city_lookup._STATE_ABBR but kept inline to avoid module coupling.)
+_STATE_ABBR = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV",
+    "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
+}
+
+
+def _try_city_state_compress(raw_clean: str) -> Optional[str]:
+    """Compress a 'City, StateName' string into 'CITY, ST' (or just 'CITY' if
+    the full form exceeds 15 chars — the practical budget after 'DEP TO ').
+
+    Examples:
+      "Reading, Pennsylvania"      → "READING, PA"        (11 chars, fits)
+      "Pittsburgh, Pennsylvania"   → "PITTSBURGH, PA"     (14 chars, fits)
+      "Philadelphia, Pennsylvania" → "PHILADELPHIA"       (state dropped, too long)
+      "West Palm Beach, Florida"   → "WEST PALM BEACH"    (state dropped)
+      "Reading"                    → None                 (no state portion)
+
+    Returns None if the input doesn't match the City, StateName pattern.
+    """
+    if "," not in raw_clean:
+        return None
+    city_part, _, state_part = raw_clean.rpartition(",")
+    state_key = state_part.strip().lower()
+    if state_key not in _STATE_ABBR:
+        return None
+    city = city_part.strip().upper()
+    full = f"{city}, {_STATE_ABBR[state_key]}"
+    # Practical budget after "DEP TO " prefix = 22 - 7 = 15
+    if len(full) <= 15:
+        return full
+    return city[:15]
 
 
 def _short_destination(raw: Optional[str]) -> str:
@@ -61,6 +112,10 @@ def _short_destination(raw: Optional[str]) -> str:
     for k, v in DESTINATION_SHORTNAMES.items():
         if key.startswith(k):
             return v
+    # Try generic "City, StateName" → "CITY, ST" compression
+    compressed = _try_city_state_compress(raw_clean)
+    if compressed:
+        return compressed
     return raw_clean.upper()[:18]
 
 
