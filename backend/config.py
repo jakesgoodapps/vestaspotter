@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # Polling cadence
     poll_interval: int = 60  # seconds between OpenSky polls
 
+    # Drop OpenSky states whose position report is older than this. OpenSky
+    # sometimes serves stale/zombie state vectors (observed 2026-07-26: planes
+    # re-appearing on approach 20+ min after landing). Positions in dense
+    # coverage update every few seconds, so anything older than a minute is
+    # untrustworthy for "overhead right now" purposes. 0 disables the filter.
+    max_position_age_s: int = 60
+
     # Predictive detection: project each aircraft's trajectory forward by this
     # many seconds. If the projected position falls inside our FOV, push to
     # the board NOW so it's mid-flap by the time the plane is actually visible.

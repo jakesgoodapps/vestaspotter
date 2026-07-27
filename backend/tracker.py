@@ -27,6 +27,7 @@ class AircraftTracker:
         min_altitude_ft: float = 0,
         field_of_view_deg: float = 120.0,
         predict_seconds_ahead: int = 0,
+        max_position_age_s: int = 60,
         opensky_auth: Optional[OpenSkyAuth] = None,
     ):
         self.lat = latitude
@@ -37,6 +38,7 @@ class AircraftTracker:
         self.min_altitude_ft = min_altitude_ft
         self.fov = field_of_view_deg
         self.predict_seconds = predict_seconds_ahead
+        self.max_position_age_s = max_position_age_s
         self.opensky_auth = opensky_auth or OpenSkyAuth()
         self._yesterday_cache: dict[str, tuple[dict, float]] = {}
 
@@ -73,12 +75,22 @@ class AircraftTracker:
         if not data or not data.get("states"):
             return []
 
+        api_time = data.get("time")
         aircraft = []
+        stale = 0
         for state in data["states"]:
             if state[5] is None or state[6] is None:
                 continue
             if state[8]:
                 continue
+            # OpenSky sometimes serves zombie states — positions minutes old,
+            # including planes that already landed. state[3]=time_position,
+            # state[4]=last_contact.
+            if self.max_position_age_s > 0 and api_time:
+                position_ts = state[3] or state[4]
+                if position_ts and api_time - position_ts > self.max_position_age_s:
+                    stale += 1
+                    continue
             ac = RawAircraft(
                 icao24=state[0].strip(),
                 callsign=state[1].strip() if state[1] else None,
@@ -94,6 +106,9 @@ class AircraftTracker:
                 category=state[17] if len(state) > 17 else None,
             )
             aircraft.append(ac)
+
+        if stale:
+            print(f"dropped {stale} stale OpenSky state(s) (position >{self.max_position_age_s}s old)")
 
         return aircraft
 

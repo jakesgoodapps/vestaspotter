@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI):
         min_altitude_ft=settings.min_altitude_ft,
         field_of_view_deg=settings.field_of_view_deg,
         predict_seconds_ahead=settings.predict_seconds_ahead,
+        max_position_age_s=settings.max_position_age_s,
         opensky_auth=opensky_auth,
     )
     enricher = FlightEnricher(api_key=settings.flightaware_api_key)
