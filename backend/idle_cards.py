@@ -508,10 +508,12 @@ def pick_next_index(state: IdleState, deck: list[Card], after_interrupt: bool) -
         return -1
     # Last rotation before quiet hours → goodnight, so that's what the board
     # sleeps on (unless it's already up).
+    # If it's already up, we return it again — an identical re-push is a
+    # Vestaboard 409 no-op, and at most the footer counts tick over.
     mins = minutes_until_quiet_start(datetime.now(_LOCAL_TZ))
     if mins is not None and mins <= settings.idle_cadence_minutes + 5:
         for i, c in enumerate(deck):
-            if c.id == "goodnight" and state.last_card_id != "goodnight":
+            if c.id == "goodnight":
                 return i
     if after_interrupt:
         for i, c in enumerate(deck):
