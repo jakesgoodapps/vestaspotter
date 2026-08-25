@@ -331,7 +331,7 @@ async def _tick_cards(
     await push_next_card(state, enricher, board, after_interrupt=after_interrupt)
 
 
-async def refresh_idle_sources(enricher: FlightEnricher) -> dict:
+async def refresh_idle_sources(enricher: FlightEnricher, facts: bool = True) -> dict:
     """Pull anything the deck needs from the network (FA specials sweep,
     Claude facts). Both are heavily guarded no-ops when already fresh."""
     out = {"specials_swept": False, "facts_generated": False}
@@ -339,10 +339,11 @@ async def refresh_idle_sources(enricher: FlightEnricher) -> dict:
         out["specials_swept"] = await daily_specials.ensure_fresh(enricher)
     except Exception as e:
         print(f"cards mode: specials refresh failed: {e}")
-    try:
-        out["facts_generated"] = await fun_facts.ensure_fresh()
-    except Exception as e:
-        print(f"cards mode: fun-facts refresh failed: {e}")
+    if facts:
+        try:
+            out["facts_generated"] = await fun_facts.ensure_fresh()
+        except Exception as e:
+            print(f"cards mode: fun-facts refresh failed: {e}")
     return out
 
 

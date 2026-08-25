@@ -441,6 +441,7 @@ class FlightEnricher:
         ident_type: Optional[str] = None,
         start: Optional[str] = None,
         end: Optional[str] = None,
+        raise_on_error: bool = False,
     ) -> list[dict]:
         """Fetch all instances of a flight from /flights/{ident}.
 
@@ -456,8 +457,15 @@ class FlightEnricher:
 
         Used by the followed-flight tracker + daily specials sweep, NOT by
         per-overhead enrichment. One result set (15 flights) per call.
+
+        Returns [] on failure by default (callers treat "no data" and "FA
+        errored" the same). `raise_on_error=True` raises instead so a caller
+        that needs to tell them apart (the specials sweep, which must not
+        mark a day as covered after a 429) can.
         """
         if not self.api_key:
+            if raise_on_error:
+                raise RuntimeError("no FlightAware API key")
             return []
         url = f"{self.AEROAPI_BASE}/flights/{ident}"
         params: dict[str, str] = {}
@@ -473,10 +481,14 @@ class FlightEnricher:
                     cost_tracker.record("/flights/{ident}")
                     if resp.status != 200:
                         print(f"FA /flights/{ident} failed: HTTP {resp.status}")
+                        if raise_on_error:
+                            raise RuntimeError(f"HTTP {resp.status}")
                         return []
                     data = await resp.json()
                     return data.get("flights", [])
         except Exception as e:
+            if raise_on_error:
+                raise
             print(f"FA /flights/{ident} failed: {e}")
             return []
 

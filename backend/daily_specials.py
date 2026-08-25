@@ -13,7 +13,11 @@ How the list is built (cards mode only, see scheduler.start_idle_refresh_loop):
 
   Because FA looks 2 days ahead, one sweep covers today AND tomorrow, so
   sweeps run every other day. A hard cap (MAX_LOOKUPS_PER_SWEEP) and a
-  one-sweep-per-day guard make the worst case a few dozen cents.
+  two-attempts-per-day guard make the worst case a few dozen cents.
+
+  FA's personal tier allows 10 result sets per MINUTE, so lookups are paced
+  LOOKUP_SPACING_S apart and failures (429s) get one paced retry pass. A day
+  is only marked "covered" when every lookup succeeded.
 
   ⚠️  This deliberately does NOT use the paginated /airports/{id}/flights/*
   endpoints — see airport_movements.py for why ($750 incident).
@@ -22,6 +26,7 @@ State lives in data/daily_specials.json and survives restarts.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from datetime import date, datetime, timedelta, timezone
@@ -44,6 +49,9 @@ _SPECIAL_FLIGHTS_PATH = _HERE / f"airport_specials_{settings.airport_code.upper(
 _lock = Lock()
 
 MAX_LOOKUPS_PER_SWEEP = 40
+MAX_ATTEMPTS_PER_DAY = 2
+LOOKUP_SPACING_S = 7      # FA personal tier: 10 result sets / minute
+RETRY_PAUSE_S = 60        # let the per-minute bucket refill before retrying failures
 
 
 # ---------------------------------------------------------------------------
@@ -187,8 +195,8 @@ async def ensure_fresh(enricher) -> bool:
     covered = state.get("covered_through")
     if covered and covered >= today_iso:
         return False
-    if state["sweeps"].get(today_iso, 0) >= 1:
-        return False  # one attempt per day, even if it failed
+    if state["sweeps"].get(today_iso, 0) >= MAX_ATTEMPTS_PER_DAY:
+        return False  # bounded attempts per day, even if they failed
 
     tails = custom_data.all_liveries()
     flights = load_special_flights()
@@ -209,17 +217,31 @@ async def ensure_fresh(enricher) -> bool:
         state["sweeps"][today_iso] = state["sweeps"].get(today_iso, 0) + 1
         _write(state)
 
-    print(f"daily-specials: sweeping {len(lookups)} lookups for {today_iso}..{tomorrow.isoformat()}")
+    print(f"daily-specials: sweeping {len(lookups)} lookups for {today_iso}..{tomorrow.isoformat()} ({LOOKUP_SPACING_S}s apart)")
     new_items: list[dict] = []
-    errors = 0
-    for ident_type, ident, label, kind in lookups:
-        try:
-            instances = await enricher.get_flight_instances(ident, ident_type=ident_type, start=start, end=end)
-        except Exception as e:
-            errors += 1
-            print(f"daily-specials: lookup {ident} failed: {e}")
-            continue
-        new_items.extend(_items_from_instances(instances, label, kind, keep))
+
+    async def _run(batch: list) -> list:
+        failed = []
+        for n, (ident_type, ident, label, kind) in enumerate(batch):
+            if n:
+                await asyncio.sleep(LOOKUP_SPACING_S)
+            try:
+                instances = await enricher.get_flight_instances(
+                    ident, ident_type=ident_type, start=start, end=end, raise_on_error=True
+                )
+            except Exception as e:
+                print(f"daily-specials: lookup {ident} failed: {e}")
+                failed.append((ident_type, ident, label, kind))
+                continue
+            new_items.extend(_items_from_instances(instances, label, kind, keep))
+        return failed
+
+    failed = await _run(lookups)
+    if failed:
+        print(f"daily-specials: {len(failed)} lookup(s) failed — retrying once in {RETRY_PAUSE_S}s")
+        await asyncio.sleep(RETRY_PAUSE_S)
+        failed = await _run(failed)
+    errors = len(failed)
 
     with _lock:
         state = _read()
@@ -239,9 +261,11 @@ async def ensure_fresh(enricher) -> bool:
         # Trim history to the last week so the file stays tiny.
         cutoff = (today - timedelta(days=7)).isoformat()
         state["items"] = [i for i in merged.values() if (i.get("date") or "") >= cutoff]
-        state["covered_through"] = tomorrow.isoformat()
+        # Only call the window covered when every lookup answered; otherwise
+        # the next card push (≤1h) gets another attempt, up to MAX_ATTEMPTS_PER_DAY.
+        state["covered_through"] = tomorrow.isoformat() if not errors else None
         state["fetched_at"] = datetime.now(timezone.utc).isoformat()
-        state["last_error"] = f"{errors} lookup(s) failed" if errors else None
+        state["last_error"] = f"{errors} lookup(s) failed even after retry (FA rate limit?)" if errors else None
         _write(state)
 
     todays = [i for i in new_items if i["date"] == today_iso]

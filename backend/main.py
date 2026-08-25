@@ -330,7 +330,7 @@ async def api_idle_refresh(regenerate_facts: bool = False):
     """Re-pull network sources: FA specials sweep (if today isn't covered)
     and Claude facts (if none yet today; `regenerate_facts=true` forces a
     fresh call — costs ~1-2¢)."""
-    result = await refresh_idle_sources(app.state.enricher)
+    result = await refresh_idle_sources(app.state.enricher, facts=not regenerate_facts)
     if regenerate_facts:
         result["facts_generated"] = await fun_facts.ensure_fresh(force=True)
     result["specials"] = daily_specials.status()
