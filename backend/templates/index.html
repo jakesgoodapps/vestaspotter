@@ -132,7 +132,9 @@
   .idle-status b { color: var(--text); font-weight: 600; }
   .idle-status .now-showing { color: var(--accent); font-weight: 600; }
   .deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-bottom: 12px; }
-  .deck-item { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .deck-item { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; }
+  .deck-item:hover { border-color: #3b434b; }
+  body.guest .deck-item { cursor: default; }
   .deck-item.current { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(245,197,24,.25); }
   .deck-title { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; display: flex; justify-content: space-between; gap: 6px; }
   .deck-item.current .deck-title { color: var(--accent); }
@@ -1052,8 +1054,8 @@ async function loadIdle() {
       grid.innerHTML = '<div class="board-empty">Deck is empty — it fills in as sightings accumulate (or add a custom card below).</div>';
     } else {
       grid.innerHTML = d.deck.map((c, i) => `
-        <div class="deck-item ${c.id === d.current_card_id ? 'current' : ''}">
-          <div class="deck-title"><span>${i + 1}. ${c.title}</span>${c.id === d.current_card_id ? '<span>ON BOARD</span>' : ''}</div>
+        <div class="deck-item ${c.id === d.current_card_id ? 'current' : ''}" title="Push this card to the board now" onclick="idlePush('${c.id}')">
+          <div class="deck-title"><span>${i + 1}. ${c.title}</span>${c.id === d.current_card_id ? '<span>ON BOARD</span>' : '<span class="idle-controls">push ▶</span>'}</div>
           <div class="board mini">${boardCellsHTML(c.matrix)}</div>
         </div>`).join('');
     }
@@ -1093,6 +1095,15 @@ async function loadIdle() {
       }
     }
   } catch (e) { console.error('loadIdle failed', e); }
+}
+async function idlePush(id) {
+  if (document.body.classList.contains('guest')) return;
+  try {
+    const r = await fetch(`/api/idle/next?card_id=${encodeURIComponent(id)}`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.pushed) alert(d.reason || 'Nothing pushed.');
+    refresh(); loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
 }
 async function idleNext() {
   try {

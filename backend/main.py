@@ -317,11 +317,14 @@ async def api_idle():
 
 
 @app.post("/api/idle/next")
-async def api_idle_next():
-    """Advance the deck now (ignores cadence + linger). Works in any mode —
-    handy for previewing cards on the real board."""
+async def api_idle_next(card_id: str | None = None):
+    """Advance the deck now (ignores cadence + linger), or push a specific
+    card by id (`?card_id=goodnight`). Works in any mode — handy for
+    previewing cards on the real board."""
     state: SpotterState = app.state.spotter
-    card = await push_next_card(state, app.state.enricher, app.state.board)
+    card = await push_next_card(state, app.state.enricher, app.state.board, card_id=card_id)
+    if card is None and card_id:
+        return {"pushed": False, "card": None, "reason": f"no card '{card_id}' in today's deck"}
     return {"pushed": card is not None, "card": card and {"id": card.id, "title": card.title}}
 
 

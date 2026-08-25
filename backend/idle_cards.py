@@ -17,6 +17,9 @@ Cards (each is skipped when there's nothing to say):
   flow         runway flow inferred from the last few sightings
   week         last 7 days
   on_this_day  same date last year (once the history is a year old)
+  goodnight    evening wrap-up: today's totals, tomorrow's sunrise, when the
+               board is back — joins the deck in the last hours before quiet
+               hours and is always the final card before the board sleeps
 
 Renderers are pure functions of plain data so `python -m backend.render_test`
 can draw them with sample inputs. build_deck() does the DB reads.
@@ -31,7 +34,7 @@ import os
 import re
 import time
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -48,6 +51,25 @@ _STATE_PATH = _DATA_DIR / "idle_state.json"
 _lock = Lock()
 
 MAX_SPECIAL_ROWS = 4
+GOODNIGHT_WINDOW_MIN = 180   # goodnight card enters the deck this long before quiet hours
+
+
+def _parse_hhmm(s: str) -> dtime:
+    h, m = s.split(":")
+    return dtime(int(h), int(m))
+
+
+def minutes_until_quiet_start(now: datetime) -> Optional[int]:
+    """Minutes until the next quiet-hours start (None if quiet hours are
+    effectively disabled i.e. start == end)."""
+    start = _parse_hhmm(settings.quiet_hours_start)
+    end = _parse_hhmm(settings.quiet_hours_end)
+    if start == end:
+        return None
+    candidate = now.replace(hour=start.hour, minute=start.minute, second=0, microsecond=0)
+    if candidate <= now:
+        candidate += timedelta(days=1)
+    return int((candidate - now).total_seconds() // 60)
 
 
 @dataclass
@@ -264,6 +286,31 @@ def render_sun_card(sun: dict, today: date, footer: list[int]) -> list[list[int]
     return _pad(rows, footer)
 
 
+def render_goodnight_card(data: dict, today: date, footer: list[int]) -> list[list[int]]:
+    """
+    🟪GOODNIGHT      MON 8/24
+     312 SEEN / 188 TAILS
+     TOP TAIL N33PP 6X
+     FIRST LIGHT 6:31A
+     BACK AT 8:00A
+    🟩DCA 47 ARR / 35 DEP
+    """
+    rows = [_title_row(VIOLET, "GOODNIGHT", _date_label(today))]
+    rows.append(_body(f"{data.get('total', 0)} SEEN / {data.get('unique_tails', 0)} TAILS"))
+    if data.get("top_tail"):
+        rows.append(_body(f"TOP TAIL {data['top_tail']} {data.get('top_tail_count', 0)}X"))
+    elif data.get("specials_seen") is not None:
+        rows.append(_body(f"{data['specials_seen']} SPECIALS SPOTTED"))
+    if data.get("sunrise"):
+        rows.append(_body(f"FIRST LIGHT {data['sunrise']}"))
+    n_tmrw = data.get("specials_tomorrow") or 0
+    if n_tmrw:
+        rows.append(_body(f"{n_tmrw} SPECIAL{'S' if n_tmrw != 1 else ''} DUE TMRW"))
+    elif data.get("back_at"):
+        rows.append(_body(f"BACK AT {data['back_at']}"))
+    return _pad(rows, footer)
+
+
 def render_fact_card(fact: dict, footer: list[int]) -> list[list[int]]:
     rows = [_title_row(YELLOW, fact["title"])]
     lines = list(fact["lines"])[:4]
@@ -400,6 +447,30 @@ def build_deck(airport: AirportView, now: Optional[datetime] = None) -> list[Car
             return None
         return Card("custom", "Your message", render_custom_card(custom["lines"]))
 
+    def goodnight():
+        mins = minutes_until_quiet_start(now)
+        evening = (mins is not None and mins <= GOODNIGHT_WINDOW_MIN) or (mins is None and now.hour >= 21)
+        if not evening:
+            return None
+        snap = daily_history.compute_snapshot(today.isoformat(), settings.airport_code)
+        tomorrow = today + timedelta(days=1)
+        st = sun_times.sun_times(tomorrow, settings.latitude, settings.longitude, settings.local_timezone)
+        back = None
+        if mins is not None:
+            end = _parse_hhmm(settings.quiet_hours_end)
+            back = sun_times.fmt_clock(datetime.combine(tomorrow, end))
+        data = {
+            "total": snap.get("total_flights", 0),
+            "unique_tails": snap.get("unique_tails", 0),
+            "top_tail": snap.get("top_tail"),
+            "top_tail_count": snap.get("top_tail_count", 0),
+            "specials_seen": sum(1 for i in daily_specials.items_for_today() if i.get("seen_at")),
+            "specials_tomorrow": len(daily_specials.items_for(tomorrow)),
+            "sunrise": st and sun_times.fmt_clock(st["sunrise"]),
+            "back_at": back,
+        }
+        return Card("goodnight", "Goodnight", render_goodnight_card(data, today, footer))
+
     facts = [
         Card(f"fact:{i}", f"Did you know · {f['title'].title()}", render_fact_card(f, footer))
         for i, f in enumerate(_safe(fun_facts.get_facts, "facts") or [])
@@ -414,6 +485,7 @@ def build_deck(airport: AirportView, now: Optional[datetime] = None) -> list[Car
         _safe(flow, "flow"),
         _safe(week, "week"),
         _safe(on_this_day, "on_this_day"),
+        _safe(goodnight, "goodnight"),
     ]
     stats_cards = [c for c in stats_cards if c]
 
@@ -430,9 +502,17 @@ def build_deck(airport: AirportView, now: Optional[datetime] = None) -> list[Car
 
 def pick_next_index(state: IdleState, deck: list[Card], after_interrupt: bool) -> int:
     """After a special flyover, land back on the checklist (so the tick is
-    visible); otherwise just advance. Robust to the deck changing size."""
+    visible); in the last hour before quiet hours, show goodnight; otherwise
+    just advance. Robust to the deck changing size."""
     if not deck:
         return -1
+    # Last rotation before quiet hours → goodnight, so that's what the board
+    # sleeps on (unless it's already up).
+    mins = minutes_until_quiet_start(datetime.now(_LOCAL_TZ))
+    if mins is not None and mins <= settings.idle_cadence_minutes + 5:
+        for i, c in enumerate(deck):
+            if c.id == "goodnight" and state.last_card_id != "goodnight":
+                return i
     if after_interrupt:
         for i, c in enumerate(deck):
             if c.id == "specials":

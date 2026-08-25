@@ -45,6 +45,9 @@ def _card_scenarios() -> list[tuple[str, list[list[int]]]]:
         ("CARD — last 7 days", idle_cards.render_week_card(week, footer)),
         ("CARD — runway flow", idle_cards.render_flow_card({"flow": "north", "arr": 0, "dep": 3, "sample_size": 3}, footer)),
         ("CARD — sun & golden hour", idle_cards.render_sun_card(sun, today, footer)),
+        ("CARD — goodnight (evening wrap-up)", idle_cards.render_goodnight_card(
+            {"total": 312, "unique_tails": 188, "top_tail": "N33PP", "top_tail_count": 6, "sunrise": "6:31A",
+             "specials_tomorrow": 1, "back_at": "8:00A"}, today, footer)),
         ("CARD — Claude fun fact", idle_cards.render_fact_card(fact, footer)),
         ("CARD — custom message ({red}/{white}/{blue} tokens)", idle_cards.render_custom_card(custom)),
     ]

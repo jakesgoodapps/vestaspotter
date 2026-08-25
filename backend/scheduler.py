@@ -358,10 +358,12 @@ async def push_next_card(
     enricher: FlightEnricher,
     board: VestaboardClient,
     after_interrupt: bool = False,
+    card_id: Optional[str] = None,
 ) -> Optional[idle_cards.Card]:
-    """Advance the deck and push. Refreshes network-backed sources first
-    (cheap when fresh) so the morning's first card already has today's
-    specials + facts. Returns the card pushed, or None if the deck is empty."""
+    """Advance the deck and push (or push the card with id `card_id`).
+    Refreshes network-backed sources first (cheap when fresh) so the
+    morning's first card already has today's specials + facts. Returns the
+    card pushed, or None if the deck is empty / the id isn't in the deck."""
     idle = state.idle
     await refresh_idle_sources(enricher)
     deck = await build_current_deck(enricher)
@@ -369,8 +371,13 @@ async def push_next_card(
         print("cards mode: deck is empty — nothing to show yet (board left as-is)")
         return None
     today = datetime.now(_LOCAL_TZ).date().isoformat()
-    prefer_specials = after_interrupt or idle.last_card_date != today
-    idx = idle_cards.pick_next_index(idle, deck, prefer_specials)
+    if card_id:
+        idx = next((i for i, c in enumerate(deck) if c.id == card_id), -1)
+        if idx < 0:
+            return None
+    else:
+        prefer_specials = after_interrupt or idle.last_card_date != today
+        idx = idle_cards.pick_next_index(idle, deck, prefer_specials)
     card = deck[idx]
     await board.push(card.matrix)
     now = time.time()
