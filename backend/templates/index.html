@@ -369,6 +369,7 @@
     </span>
   </div>
   <div class="cost-breakdown" id="cost-breakdown"></div>
+  <div class="tiny-hint" id="cache-hint"></div>
 </div>
 
 <!-- Hourly heatmap -->
@@ -740,6 +741,13 @@ async function refresh() {
 
     // Poll interval
     if (d.poll_interval) document.getElementById('poll-interval').textContent = d.poll_interval;
+
+    // Local-first enrichment savings
+    if (d.local_cache) {
+      const lc = d.local_cache;
+      document.getElementById('cache-hint').textContent =
+        `Local cache: ${lc.routes_cached} routes · ${lc.identities_cached} tails · ${lc.fa_calls_avoided} FA calls avoided since ${new Date(lc.since).toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}`;
+    }
 
     // Make the configured airport code available to other render functions
     if (d.airport_code) {

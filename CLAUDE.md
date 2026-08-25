@@ -40,11 +40,13 @@ AircraftTracker (tracker.py)
   • predictive lookahead: project trajectories forward N seconds
         |
         v
-FlightEnricher (enrichment.py)
-  • FlightAware /flights/{ident} — route, schedule, type
-  • FlightAware /aircraft/{reg}/owner — owner info
-  • FlightAware /aircraft/types/{type} — friendly type name (skipped if we have an override)
-  • OpenSky metadata — year built
+FlightEnricher (enrichment.py) — local-first, three tiers:
+  1. faa_registry — icao24 → tail / type / year / owner from OpenSky metadata, cached forever (free)
+  2. local_cache — callsign → route / marketing flight number, 7-day TTL, seeded from sightings (free)
+  3. FlightAware /flights/{ident} — schedule, actual times, delay ($0.005); only for
+     enrich(live=True), i.e. the plane about to be RENDERED, or on a route-cache miss
+  • FlightAware /aircraft/types/{type} — friendly type name (persisted forever; skipped if we have an override)
+  • FlightAware /aircraft/{reg}/owner — OFF by default (ENABLE_FA_OWNER_LOOKUP); owner isn't displayed
   • custom_data — liveries.yaml, airport_rare_{CODE}.yaml, aircraft_names.yaml
   • sightings_db — sighting count for this tail
         |
@@ -69,7 +71,8 @@ VestaboardClient.push (vestaboard.py)
 | `config.py` | All env-driven settings (pydantic-settings) |
 | `tracker.py` | OpenSky polling + overhead filter + predictive lookahead |
 | `enrichment.py` | FlightAware API calls + caching + per-call cost tracking |
-| `faa_registry.py` | Year-built lookup via OpenSky metadata (cached forever per icao24) |
+| `faa_registry.py` | Tier 1 identity store: icao24 → registration/type/year/owner via OpenSky metadata (cached forever) |
+| `local_cache.py` | Tier 2: route cache (callsign → origin/dest, 7-day TTL, seeded from sightings) + persistent FA type cache + "FA calls avoided" counters |
 | `data_pipeline.py` | EnrichedAircraft → AircraftView translation |
 | `formatter.py` | All board-rendering functions (regular, no-traffic, POTUS variants) |
 | `airline_colors.py` | IATA airline code → Vestaboard color code |
@@ -150,6 +153,16 @@ FA's published rates and the May 2026 invoice this project was originally
 built against. There's a `_AIRPORT_MOVEMENTS_INCIDENT_DOCS` reference in
 the code explaining why paginated `/flights/arrivals` calls are off-limits.
 
+**Local-first enrichment.** `enrich(aircraft, live=False)` is what every
+poll uses — identity from the registry, route from `local_cache`, FA only on
+a route-cache miss. That's enough to log the sighting and decide whether the
+plane is special / should push. `enrich(live=True)` (always hits FA
+`/flights/{ident}` for schedule + delay) is called only right before
+`_push_aircraft`. The 300s in-memory `_flight_cache` (now with negative
+caching for callsigns FA doesn't know) means the two calls never double-bill.
+Before this, every poll bought a `/flights` + `/owner` call (~490 FA calls
+a day); after, FA is roughly "one call per plane actually displayed".
+
 **Two board modes.** `settings_state.board_mode` is `live` (classic: every
 flight flaps, subject to refresh_rate/filter_mode) or `cards`. In cards
 mode `scheduler._tick_cards` owns the board: the deck from
@@ -192,7 +205,8 @@ The directory is gitignored so you won't see it in a fresh clone — it's create
 ```
 {data_dir}/
 ├── sightings.db              # every aircraft we've pushed (or attempted to)
-├── registry.db               # icao24 → year_built cache
+├── registry.db               # icao24 → registration/type/year/owner (OpenSky metadata, forever)
+├── local_cache.db            # route cache (callsign → origin/dest) + FA type descriptions
 ├── fa_usage.db               # one row per FA API call
 ├── daily_history.db          # end-of-day snapshots
 ├── pause_state.json          # current pause window

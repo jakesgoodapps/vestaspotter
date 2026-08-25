@@ -13,8 +13,9 @@ import aiohttp
 from datetime import datetime, timezone
 from typing import Optional
 
-from . import cost_tracker, faa_registry
+from . import cost_tracker, faa_registry, local_cache
 from . import sightings_db as history
+from .config import settings
 from .custom_data import get_aircraft_name, get_airport_rare, get_livery
 from .models import EnrichedAircraft, RawAircraft
 
@@ -92,7 +93,23 @@ class FlightEnricher:
         self._type_cache: dict[str, tuple[dict, float]] = {}
         self._airport_status_cache: dict[str, tuple[dict, float]] = {}
 
-    async def enrich(self, aircraft: RawAircraft) -> EnrichedAircraft:
+    async def enrich(self, aircraft: RawAircraft, live: bool = True) -> EnrichedAircraft:
+        """Turn an OpenSky state vector into a board-ready EnrichedAircraft.
+
+        Three tiers, cheapest first:
+          1. identity  — icao24 → tail / type / year / owner from OpenSky
+                         metadata, cached forever (faa_registry). Free.
+          2. route     — callsign → origin / destination / marketing flight
+                         number from local_cache (7-day TTL). Free.
+          3. live      — FlightAware /flights/{ident}: schedule, actual
+                         times, delay. $0.005. Also refreshes tier 2.
+
+        live=True  → always make the FA call (needed to RENDER a flight:
+                     rows 2-3 of the board are live times + delay).
+        live=False → tiers 1-2 only; FA only if the route cache can't
+                     answer. Enough to log a sighting + decide if the plane
+                     is special, which is all most overhead traffic needs.
+        """
         enriched = EnrichedAircraft(
             icao24=aircraft.icao24,
             callsign=aircraft.callsign,
@@ -113,16 +130,48 @@ class FlightEnricher:
 
         self._apply_callsign_airline(enriched, callsign)
 
-        async with aiohttp.ClientSession() as session:
-            fa_flight = await self._get_flight(session, callsign)
-            if fa_flight:
-                self._apply_flightaware_flight(enriched, fa_flight)
+        # Tier 1 — identity (free, permanent)
+        ident = await faa_registry.identity(aircraft.icao24)
+        if ident and ident.get("registration"):
+            enriched.registration = ident.get("registration")
+            enriched.aircraft_type = ident.get("typecode") or None
+            enriched.year_built = ident.get("year_built")
+            enriched.owner_name = ident.get("owner") or ident.get("operator")
+            local_cache.count("identity_hit")
 
-            if enriched.registration:
-                owner = await self._get_owner(session, enriched.registration)
-                if owner:
-                    enriched.owner_name = owner.get("name")
-                    enriched.owner_location = owner.get("location")
+        async with aiohttp.ClientSession() as session:
+            # Tier 2 — route cache; Tier 3 — FA live
+            fa_flight = None
+            route = None
+            # Serve from the route cache only when identity is complete —
+            # without a type code we can't judge rarity, so buy one FA call
+            # for this hex and remember the answer (faa_registry.learn).
+            identity_complete = bool(ident and ident.get("registration") and ident.get("typecode"))
+            if not live and identity_complete:
+                route = local_cache.get_route(callsign, max_age_s=settings.route_cache_days * 86400)
+            if route is not None:
+                local_cache.count("route_hit")
+                self._apply_flightaware_flight(enriched, route)
+            else:
+                fa_flight = await self._get_flight(session, callsign)
+                if fa_flight:
+                    self._apply_flightaware_flight(enriched, fa_flight)
+                    local_cache.put_route(callsign, fa_flight)
+                    faa_registry.learn(aircraft.icao24, fa_flight.get("registration"), fa_flight.get("aircraft_type"))
+                    local_cache.count("fa_live" if live else ("route_miss" if identity_complete else "identity_fill"))
+                else:
+                    local_cache.count("fa_unknown")
+
+            # Owner — OpenSky metadata covers it; FA fallback is opt-in
+            # (owner isn't displayed anywhere).
+            if enriched.registration and not enriched.owner_name:
+                if settings.enable_fa_owner_lookup:
+                    owner = await self._get_owner(session, enriched.registration)
+                    if owner:
+                        enriched.owner_name = owner.get("name")
+                        enriched.owner_location = owner.get("location")
+                else:
+                    local_cache.count("owner_skipped")
 
             if enriched.aircraft_type:
                 # Only call the FA type endpoint if we don't have a custom
@@ -155,10 +204,10 @@ class FlightEnricher:
         # Custom livery overrides aircraft-type display in the renderer.
         enriched.livery_name = get_livery(enriched.registration)
 
-        # Manufacture year (cached forever in registry.db once fetched).
-        # Lookup is by ICAO 24-bit hex (always present), with registration
-        # passed along for human-readable cache entries.
-        enriched.year_built = await faa_registry.year_built(enriched.icao24, enriched.registration)
+        # Manufacture year — usually already set by tier 1; this only fires
+        # when OpenSky had no record for the hex but FA told us the tail.
+        if enriched.year_built is None and enriched.registration and not (ident and ident.get("registration")):
+            enriched.year_built = await faa_registry.year_built(enriched.icao24, enriched.registration)
 
         # Sighting history
         history.record_sighting(enriched)
@@ -181,6 +230,8 @@ class FlightEnricher:
             async with session.get(url, headers={"x-apikey": self.api_key}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 cost_tracker.record("/flights/{ident}")
                 if resp.status != 200:
+                    if resp.status in (400, 404):
+                        self._flight_cache[callsign] = (None, now + _FLIGHT_TTL)
                     return None
                 data = await resp.json()
         except Exception as e:
@@ -188,6 +239,9 @@ class FlightEnricher:
             return None
         flights = data.get("flights", [])
         if not flights:
+            # Negative cache: FA doesn't know this callsign (GA, military,
+            # blocked). Without this we re-asked every poll — 3× a minute.
+            self._flight_cache[callsign] = (None, now + _FLIGHT_TTL)
             return None
         in_air = [f for f in flights if f.get("actual_off") and not f.get("actual_on")]
         if in_air:
@@ -219,8 +273,10 @@ class FlightEnricher:
         enriched.destination_city = dest.get("city")
         enriched.destination_iata = dest.get("code_iata")
 
-        enriched.aircraft_type = fa.get("aircraft_type")
-        enriched.registration = fa.get("registration")
+        # A live FA answer is the freshest identity; a cached route (or an FA
+        # record with blanks) must not wipe what OpenSky metadata told us.
+        enriched.aircraft_type = fa.get("aircraft_type") or enriched.aircraft_type
+        enriched.registration = fa.get("registration") or enriched.registration
 
         enriched.scheduled_departure = _parse_dt(fa.get("scheduled_off"))
         enriched.estimated_departure = _parse_dt(fa.get("estimated_off"))
@@ -310,6 +366,11 @@ class FlightEnricher:
         cached = self._type_cache.get(icao_type)
         if cached and cached[1] > now:
             return cached[0]
+        stored = local_cache.get_type(icao_type)
+        if stored is not None:
+            local_cache.count("type_hit")
+            self._type_cache[icao_type] = (stored, now + _TYPE_TTL)
+            return stored
         if not self.api_key:
             return None
         url = f"{self.AEROAPI_BASE}/aircraft/types/{icao_type}"
@@ -323,6 +384,7 @@ class FlightEnricher:
             print(f"FA type {icao_type} failed: {e}")
             return None
         self._type_cache[icao_type] = (data, now + _TYPE_TTL)
+        local_cache.put_type(icao_type, data)
         return data
 
     async def paginate_airport_flights(

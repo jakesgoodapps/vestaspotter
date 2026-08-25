@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     # push every `heartbeat_interval` seconds so the board reflects status drift.
     heartbeat_interval: int = 600  # 10 min — covers airport status refresh
 
+    # ---- Local-first enrichment (see enrichment.py + local_cache.py) ----
+    # Route cache TTL: how long a callsign's origin/destination is trusted
+    # before we re-verify it with FlightAware. Airlines keep flight numbers on
+    # a city pair for a whole season, so a week is conservative.
+    route_cache_days: int = 7
+    # FA /aircraft/{reg}/owner fallback when OpenSky metadata has no owner.
+    # Owner isn't shown on the board or dashboard, so this is off by default
+    # (it was ~3,900 calls/month of unused data).
+    enable_fa_owner_lookup: bool = False
+
     # Airport movements DB refresh — paginates FA flights/arrivals + /departures.
     # Each cycle ≈ 24 pages × 2 = ~48 FA calls at midday for DCA. 30min = ~2300/day.
     # If FA usage gets uncomfortable, dial this up.

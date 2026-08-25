@@ -150,7 +150,7 @@ async def _tick(
         if overhead:
             primary = overhead[0]
             try:
-                enriched = await enricher.enrich(primary)
+                enriched = await enricher.enrich(primary, live=False)
                 state.current_overhead = enriched
             except Exception as e:
                 print(f"followed-mode sighting enrich failed: {e}")
@@ -187,7 +187,10 @@ async def _tick(
     if overhead:
         primary = overhead[0]
         is_predicted = getattr(primary, "_is_predicted", False)
-        enriched = await enricher.enrich(primary)
+        # Local-first: identity + route from cache is enough to log the
+        # sighting and decide whether to push. The live FA call (schedule,
+        # delay) only happens for the plane we're actually about to render.
+        enriched = await enricher.enrich(primary, live=False)
         state.current_overhead = enriched
 
         # Push if this is a different aircraft from what's on the board,
@@ -223,6 +226,8 @@ async def _tick(
             tag = "PREDICTED" if is_predicted else "current"
             vip_marker = " ⭐VIP" if is_vip else ""
             print(f"detected [{tag}]{vip_marker} {enriched.callsign} at {primary._distance_nm:.2f}nm, pushing...")
+            enriched = await enricher.enrich(primary, live=True)
+            state.current_overhead = enriched
             await _push_aircraft(state, enriched, enricher, board)
         elif skip_reason:
             print(f"detected {enriched.callsign} but skipping push ({skip_reason})")
@@ -295,7 +300,7 @@ async def _tick_cards(
     if overhead:
         primary = overhead[0]
         is_predicted = getattr(primary, "_is_predicted", False)
-        enriched = await enricher.enrich(primary)
+        enriched = await enricher.enrich(primary, live=False)
         state.current_overhead = enriched
         is_special = bool(enriched.is_rare or enriched.livery_name)
         is_vip = watch_list.contains(enriched.registration)
@@ -309,6 +314,8 @@ async def _tick_cards(
                 tag = "PREDICTED" if is_predicted else "current"
                 why = "VIP" if is_vip else (enriched.livery_name or enriched.rare_reason or "rare")
                 print(f"cards mode: special [{tag}] {enriched.callsign} ({why}) at {primary._distance_nm:.2f}nm, interrupting deck")
+                enriched = await enricher.enrich(primary, live=True)
+                state.current_overhead = enriched
                 if not await _push_aircraft(state, enriched, enricher, board):
                     return
             # Keep extending the window while the plane is still in view.

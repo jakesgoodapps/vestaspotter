@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from . import board_state, cost_tracker, custom_card, daily_history, daily_specials, faa_registry, followed_flight, fun_facts, idle_cards, pause_state, potus_schedule, scheduled_profiles, settings_state, sightings_db, watch_list
+from . import board_state, cost_tracker, custom_card, daily_history, daily_specials, faa_registry, followed_flight, fun_facts, idle_cards, local_cache, pause_state, potus_schedule, scheduled_profiles, settings_state, sightings_db, watch_list
 from .config import settings
 from .data_pipeline import to_aircraft_view, to_airport_view
 from .enrichment import FlightEnricher
@@ -41,6 +41,13 @@ async def lifespan(app: FastAPI):
     faa_registry.init_db()
     cost_tracker.init_db()
     daily_history.init_db()
+    local_cache.init_db()
+    try:
+        seeded = local_cache.seed_routes_from_sightings()
+        if seeded:
+            log.info("route cache seeded with %d callsigns from sightings history", seeded)
+    except Exception as e:
+        log.warning("route cache seed failed: %s", e)
 
     opensky_auth = OpenSkyAuth(
         client_id=settings.opensky_client_id,
@@ -263,6 +270,7 @@ async def api_status():
         "quiet_hours_active": is_quiet_hours(),
         "user_settings": settings_state.get_settings(),
         "board_kind": state.last_render_kind,
+        "local_cache": local_cache.stats(),
         "idle": {
             "next_rotation_in_s": state.idle.next_rotation_in_s(),
             "interrupt_remaining_s": state.idle.interrupt_remaining_s(),
