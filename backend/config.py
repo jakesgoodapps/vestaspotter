@@ -73,6 +73,22 @@ class Settings(BaseSettings):
     # Display
     airport_code: str = "DCA"
 
+    # ---- Idle cards (board_mode = 'cards', toggled from the dashboard) ----
+    # When the board is in cards mode it rests on a rotating deck (today's
+    # specials checklist, yesterday's stats, fun facts…) instead of flapping
+    # for every flight. See backend/idle_cards.py.
+    idle_cadence_minutes: int = 60   # how often the deck advances to the next card
+    idle_linger_minutes: int = 15    # how long a special/VIP flyover stays up before the deck resumes
+    # Morning FlightAware sweep that finds today's known liveries + curated
+    # special flights at the airport (cards mode only). ~16 tails ≈ $0.08 per
+    # sweep, and sweeps run at most every other day (the endpoint sees 2 days
+    # ahead). Set false to make the checklist card purely sighting-driven.
+    daily_specials_enabled: bool = True
+    # Claude-generated "did you know" cards (cards mode only). One small call
+    # per day (~1-2¢). Blank key = feature off, deck is just the stats cards.
+    anthropic_api_key: str = ""
+    fun_facts_model: str = "claude-opus-5"
+
     # ---- POTUS detector (opt-in; DC-only) ----
     # When enabled, watches for a Park Police helicopter doing orbital laps
     # around the White House and cross-references factba.se's POTUS schedule.

@@ -1,6 +1,18 @@
 """Background polling loop — poll OpenSky → enrich → render → push to Vestaboard.
 
-Push policy (different from PlaneSpotter which had a hard 5-min throttle):
+Two board modes (settings_state.board_mode, toggled from the dashboard):
+
+  live  — classic spotter. Every overhead flight flaps the board, subject to
+          the user's refresh_rate throttle + filter_mode. Great for demos.
+  cards — idle deck. The board rests on a rotating deck of cards (today's
+          specials checklist, yesterday's stats, fun facts…) advancing every
+          IDLE_CADENCE_MINUTES. Only rare types, known liveries and watch-list
+          tails interrupt; after IDLE_LINGER_MINUTES the deck resumes on the
+          checklist with that plane ticked. See idle_cards.py.
+
+Followed flights and the POTUS detector pre-empt BOTH modes, exactly as before.
+
+Push policy in live mode (different from PlaneSpotter which had a hard 5-min throttle):
 
   - Push immediately when the overhead aircraft CHANGES (different icao24 from
     last push). This is the whole point — every new flap event matters.
@@ -16,7 +28,7 @@ from datetime import datetime, time as dtime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from . import board_state, city_lookup, daily_history, followed_flight, pause_state, potus_detector, potus_schedule, scheduled_profiles, settings_state, turbulence, watch_list
+from . import board_state, city_lookup, daily_history, daily_specials, followed_flight, fun_facts, idle_cards, pause_state, potus_detector, potus_schedule, scheduled_profiles, settings_state, turbulence, watch_list
 from .config import settings
 from .data_pipeline import to_aircraft_view, to_airport_view
 from .enrichment import FlightEnricher
@@ -58,6 +70,14 @@ class SpotterState:
     last_pushed_no_traffic: bool = False
     last_push_ts: float = 0.0
     last_render_matrix: Optional[list[list[int]]] = None
+    # What KIND of frame is on the board: 'aircraft' | 'card' | 'potus' |
+    # 'followed' | 'no_traffic'. Cards mode uses this to know when the deck
+    # needs to take the board back (after POTUS, a followed flight, a mode
+    # switch, or a special flyover's linger window).
+    last_render_kind: str = "aircraft"
+
+    def __init__(self) -> None:
+        self.idle: idle_cards.IdleState = idle_cards.IdleState()
 
 
 async def start_polling_loop(
@@ -159,6 +179,11 @@ async def _tick(
     if hasattr(state, "_potus_marker"):
         delattr(state, "_potus_marker")
 
+    # Cards mode: the deck owns the board; only specials interrupt.
+    if settings_state.board_mode() == "cards":
+        await _tick_cards(state, overhead, enricher, board)
+        return
+
     if overhead:
         primary = overhead[0]
         is_predicted = getattr(primary, "_is_predicted", False)
@@ -220,11 +245,11 @@ async def _push_aircraft(
     enriched: EnrichedAircraft,
     enricher: FlightEnricher,
     board: VestaboardClient,
-) -> None:
+) -> bool:
     view = to_aircraft_view(enriched)
     if view is None:
         print(f"skipping push — enrichment insufficient for {enriched.icao24}")
-        return
+        return False
     airport_status = await enricher.get_airport_status(settings.airport_code)
     airport_view = to_airport_view(settings.airport_code, airport_status)
     matrix = format_board(view, airport_view)
@@ -233,12 +258,136 @@ async def _push_aircraft(
     state.last_pushed_no_traffic = False
     state.last_push_ts = time.time()
     state.last_render_matrix = matrix
-    board_state.save(matrix, enriched.icao24, False)
+    state.last_render_kind = "aircraft"
+    board_state.save(matrix, enriched.icao24, False, kind="aircraft")
     print(
         f"pushed {view.airline_iata}{view.flight_number} "
         f"({view.origin_iata}>>{view.destination_iata}) "
         f"tail={view.tail_number}"
     )
+    return True
+
+
+# ============================================================================
+#  Cards mode (idle deck)
+# ============================================================================
+
+async def _tick_cards(
+    state: SpotterState,
+    overhead: list,
+    enricher: FlightEnricher,
+    board: VestaboardClient,
+) -> None:
+    """One poll in cards mode.
+
+      1. Special / VIP overhead → push its frame (once), tick the checklist,
+         and open a linger window during which the deck stays away.
+      2. Ordinary overhead → still enriched + logged (stats stay accurate),
+         but the board doesn't move.
+      3. Otherwise, if the linger window is closed and the deck is due
+         (cadence elapsed, or something else — POTUS, followed flight, a mode
+         switch — was on the board), advance to the next card.
+    """
+    idle = state.idle
+    now = time.time()
+    linger = settings.idle_linger_minutes * 60
+
+    if overhead:
+        primary = overhead[0]
+        is_predicted = getattr(primary, "_is_predicted", False)
+        enriched = await enricher.enrich(primary)
+        state.current_overhead = enriched
+        is_special = bool(enriched.is_rare or enriched.livery_name)
+        is_vip = watch_list.contains(enriched.registration)
+        if is_special or is_vip:
+            try:
+                daily_specials.mark_seen(enriched)
+            except Exception as e:
+                print(f"cards mode: checklist tick failed: {e}")
+            already_up = enriched.icao24 == state.last_pushed_icao24 and state.last_render_kind == "aircraft"
+            if not already_up:
+                tag = "PREDICTED" if is_predicted else "current"
+                why = "VIP" if is_vip else (enriched.livery_name or enriched.rare_reason or "rare")
+                print(f"cards mode: special [{tag}] {enriched.callsign} ({why}) at {primary._distance_nm:.2f}nm, interrupting deck")
+                if not await _push_aircraft(state, enriched, enricher, board):
+                    return
+            # Keep extending the window while the plane is still in view.
+            idle.interrupt_until = now + linger
+            idle_cards.save_state(idle)
+            return
+        print(f"cards mode: {enriched.flight_number or enriched.callsign} overhead but ordinary — deck stays")
+    else:
+        state.current_overhead = None
+
+    if now < idle.interrupt_until:
+        print(f"cards mode: special lingering, deck resumes in {int(idle.interrupt_until - now)}s")
+        return
+
+    after_interrupt = state.last_render_kind != "card"
+    cadence = settings.idle_cadence_minutes * 60
+    if not after_interrupt and (now - idle.last_card_push_ts) < cadence:
+        print(f"cards mode: idle, next card in {int((idle.last_card_push_ts + cadence - now) // 60)}m")
+        return
+    await push_next_card(state, enricher, board, after_interrupt=after_interrupt)
+
+
+async def refresh_idle_sources(enricher: FlightEnricher) -> dict:
+    """Pull anything the deck needs from the network (FA specials sweep,
+    Claude facts). Both are heavily guarded no-ops when already fresh."""
+    out = {"specials_swept": False, "facts_generated": False}
+    try:
+        out["specials_swept"] = await daily_specials.ensure_fresh(enricher)
+    except Exception as e:
+        print(f"cards mode: specials refresh failed: {e}")
+    try:
+        out["facts_generated"] = await fun_facts.ensure_fresh()
+    except Exception as e:
+        print(f"cards mode: fun-facts refresh failed: {e}")
+    return out
+
+
+async def build_current_deck(enricher: FlightEnricher) -> list[idle_cards.Card]:
+    airport_status = await enricher.get_airport_status(settings.airport_code)
+    airport_view = to_airport_view(settings.airport_code, airport_status)
+    return idle_cards.build_deck(airport_view)
+
+
+async def push_next_card(
+    state: SpotterState,
+    enricher: FlightEnricher,
+    board: VestaboardClient,
+    after_interrupt: bool = False,
+) -> Optional[idle_cards.Card]:
+    """Advance the deck and push. Refreshes network-backed sources first
+    (cheap when fresh) so the morning's first card already has today's
+    specials + facts. Returns the card pushed, or None if the deck is empty."""
+    idle = state.idle
+    await refresh_idle_sources(enricher)
+    deck = await build_current_deck(enricher)
+    if not deck:
+        print("cards mode: deck is empty — nothing to show yet (board left as-is)")
+        return None
+    today = datetime.now(_LOCAL_TZ).date().isoformat()
+    prefer_specials = after_interrupt or idle.last_card_date != today
+    idx = idle_cards.pick_next_index(idle, deck, prefer_specials)
+    card = deck[idx]
+    await board.push(card.matrix)
+    now = time.time()
+    idle.index = idx
+    idle.last_card_id = card.id
+    idle.last_card_push_ts = now
+    idle.last_card_date = today
+    idle.deck_size = len(deck)
+    idle.interrupt_until = 0.0
+    idle_cards.save_state(idle)
+    state.last_pushed_icao24 = None
+    state.last_pushed_no_traffic = False
+    state.last_push_ts = now
+    state.last_render_matrix = card.matrix
+    state.last_render_kind = "card"
+    board_state.save(card.matrix, None, False, kind="card")
+    print(f"pushed idle card '{card.id}' ({idx + 1}/{len(deck)}) — next in {settings.idle_cadence_minutes}m")
+    return card
 
 
 _FOLLOWED_SCAN_INTERVAL = 60  # seconds between queue scans
@@ -385,9 +534,10 @@ async def _push_followed_flight(
     await board.push(matrix)
     state.last_push_ts = time.time()
     state.last_render_matrix = matrix
+    state.last_render_kind = "followed"
     state.last_pushed_icao24 = None
     state.last_pushed_no_traffic = False
-    board_state.save(matrix, None, False)
+    board_state.save(matrix, None, False, kind="followed")
     phase = flight.derive_phase().value
     print(
         f"pushed followed-flight board "
@@ -534,7 +684,8 @@ async def _push_potus_board(
     await board.push(matrix)
     state.last_push_ts = time.time()
     state.last_render_matrix = matrix
-    board_state.save(matrix, None, False)
+    state.last_render_kind = "potus"
+    board_state.save(matrix, None, False, kind="potus")
     if drill or det_state.is_drill_suspected:
         mode = "drill"
     elif is_tbd:
@@ -558,5 +709,6 @@ async def _push_no_traffic(
     state.last_pushed_no_traffic = True
     state.last_push_ts = time.time()
     state.last_render_matrix = matrix
-    board_state.save(matrix, None, True)
+    state.last_render_kind = "no_traffic"
+    board_state.save(matrix, None, True, kind="no_traffic")
     print("pushed no-traffic board")

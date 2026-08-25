@@ -321,3 +321,50 @@ def top_seen(limit: int = 20) -> list[dict]:
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def total_sightings() -> int:
+    """All-time sighting count (for the Hall of Fame card + milestones)."""
+    with _lock, _connect() as conn:
+        row = conn.execute("SELECT COUNT(*) AS n FROM sightings").fetchone()
+    return int(row["n"]) if row else 0
+
+
+def count_today() -> int:
+    """Sightings since local midnight (any direction)."""
+    midnight_iso = _local_midnight_today_utc_iso()
+    with _lock, _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM sightings WHERE seen_at >= ?", (midnight_iso,)
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def recent_matching(days: int = 7, types: Optional[set[str]] = None,
+                    registrations: Optional[set[str]] = None, limit: int = 20) -> list[dict]:
+    """Sightings in the last N days whose aircraft_type is in `types` OR whose
+    registration is in `registrations`. Feeds the fun-facts context ("rare
+    stuff you saw this week") — pure SQL, no API calls."""
+    types = {t.upper() for t in (types or set())}
+    registrations = {r.upper() for r in (registrations or set())}
+    if not types and not registrations:
+        return []
+    from datetime import timedelta
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    clauses, params = [], [since]
+    if types:
+        clauses.append(f"UPPER(aircraft_type) IN ({','.join('?' * len(types))})")
+        params.extend(sorted(types))
+    if registrations:
+        clauses.append(f"UPPER(registration) IN ({','.join('?' * len(registrations))})")
+        params.extend(sorted(registrations))
+    params.append(limit)
+    with _lock, _connect() as conn:
+        rows = conn.execute(
+            "SELECT registration, flight_number, aircraft_type, origin_iata, "
+            "destination_iata, seen_at FROM sightings "
+            f"WHERE seen_at >= ? AND ({' OR '.join(clauses)}) "
+            "ORDER BY seen_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]

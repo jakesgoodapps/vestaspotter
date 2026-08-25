@@ -126,10 +126,41 @@
     .stats { grid-template-columns: repeat(3, 1fr); }
   }
 
+  /* Idle deck */
+  .setting-row.muted { opacity: .45; }
+  .idle-status { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.5; }
+  .idle-status b { color: var(--text); font-weight: 600; }
+  .idle-status .now-showing { color: var(--accent); font-weight: 600; }
+  .deck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .deck-item { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .deck-item.current { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(245,197,24,.25); }
+  .deck-title { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; display: flex; justify-content: space-between; gap: 6px; }
+  .deck-item.current .deck-title { color: var(--accent); }
+  .board.mini { padding: 4px; gap: 1px; max-width: 100%; border-radius: 4px; box-shadow: none; }
+  .board.mini .cell .char { font-size: clamp(5px, 0.8vw, 8px); }
+  .idle-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .specials-row { display: grid; grid-template-columns: 22px 1fr auto auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid rgba(255,255,255,.04); font-family: ui-monospace, monospace; font-size: 12px; }
+  .specials-row:last-child { border-bottom: none; }
+  .specials-row .tick { width: 16px; height: 16px; border-radius: 3px; background: var(--tile-white); cursor: pointer; }
+  .specials-row .tick.seen { background: var(--tile-green); }
+  .specials-row .lbl { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .specials-row .lbl .kind { color: var(--text-dim); font-weight: 400; font-size: 10px; margin-left: 6px; }
+  .specials-row .when { color: var(--text-dim); white-space: nowrap; }
+  .specials-add { display: grid; grid-template-columns: 1fr 70px 110px auto; gap: 6px; margin-top: 8px; padding: 8px; background: var(--bg-elev); border-radius: 6px; align-items: center; }
+  .specials-add input, .specials-add select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 11px; font-family: inherit; min-width: 0; }
+  .specials-add button { padding: 6px 12px; font-size: 11px; min-width: auto; }
+  .custom-lines { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.4; resize: vertical; text-transform: uppercase; }
+  .custom-lines:focus { outline: none; border-color: var(--accent); }
+  .custom-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); }
+  .custom-row input[type=number] { width: 60px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-family: inherit; }
+  .custom-row button { flex: 0 0 auto; padding: 7px 12px; font-size: 12px; min-width: auto; }
+  .tiny-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+
   /* Guest mode — strips out all controls AND private data so the URL is safe to share */
   body.guest .card.controls-card,
   body.guest .card.settings-card,
   body.guest .card.cost-card,
+  body.guest .idle-controls,
   body.guest #pause-banner { display: none !important; }
   body.guest header .pill { display: none; }
   body.guest::before { content: 'GUEST VIEW · LIVE'; display: block; text-align: center; font-size: 9px; letter-spacing: 0.2em; color: var(--text-dim); padding-bottom: 4px; }
@@ -452,7 +483,15 @@
 <div class="card settings-card">
   <div class="card-title">Board Settings</div>
   <div class="setting-row">
-    <div class="setting-label">Refresh Rate</div>
+    <div class="setting-label">Board Mode</div>
+    <div class="chips" id="chips-mode">
+      <button class="chip" data-bm="live" onclick="setBoardMode('live')">Live · every flight</button>
+      <button class="chip" data-bm="cards" onclick="setBoardMode('cards')">Idle Cards 🃏</button>
+    </div>
+    <div class="setting-hint" id="hint-mode">Live = classic spotter, flaps for every plane (great for demos). Idle Cards = the board rests on a rotating deck (specials checklist, stats, fun facts) and only rare types, liveries + watch-list tails interrupt.</div>
+  </div>
+  <div class="setting-row" id="row-refresh">
+    <div class="setting-label">Refresh Rate <span style="font-weight:400; text-transform:none; letter-spacing:0">(live mode)</span></div>
     <div class="chips" id="chips-refresh">
       <button class="chip" data-rr="every_flight" onclick="setRefreshRate('every_flight')">Every Flight</button>
       <button class="chip" data-rr="5min" onclick="setRefreshRate('5min')">~5m</button>
@@ -461,13 +500,56 @@
     </div>
     <div class="setting-hint" id="hint-refresh">Polling still tracks every plane — only board flaps are throttled.</div>
   </div>
-  <div class="setting-row">
-    <div class="setting-label">Filter</div>
+  <div class="setting-row" id="row-filter">
+    <div class="setting-label">Filter <span style="font-weight:400; text-transform:none; letter-spacing:0">(live mode)</span></div>
     <div class="chips" id="chips-filter">
       <button class="chip" data-fm="all" onclick="setFilterMode('all')">All Flights</button>
       <button class="chip" data-fm="special" onclick="setFilterMode('special')">Special Only ✨</button>
     </div>
     <div class="setting-hint" id="hint-filter">"Special" = rare aircraft (757, 747, military) or known custom liveries.</div>
+  </div>
+</div>
+
+<!-- Idle deck -->
+<div class="card idle-card" id="idle-card">
+  <div class="card-title">Idle Deck · <span id="idle-mode-label">—</span></div>
+  <div class="idle-status" id="idle-status">Loading…</div>
+  <div class="controls idle-controls">
+    <button onclick="idleNext()">Next card now ▶</button>
+    <button onclick="idleRefresh(false)">Refresh sources</button>
+    <button onclick="idleRefresh(true)" title="Forces a new Claude call (~1-2¢)">Regenerate facts</button>
+  </div>
+  <div class="deck-grid" id="deck-grid"><div class="board-empty">Loading deck…</div></div>
+
+  <div class="idle-section">
+    <div class="setting-label">Today's specials checklist</div>
+    <div id="specials-body"><div class="tiny-hint">Nothing scheduled today.</div></div>
+    <div class="specials-add idle-controls">
+      <input id="sp-label" type="text" placeholder="label (e.g. C-17 FROM DOVER)" maxlength="30" />
+      <select id="sp-dir"><option value="ARR">ARR</option><option value="DEP">DEP</option></select>
+      <input id="sp-time" type="time" value="15:00" />
+      <button onclick="addSpecial()">Add</button>
+    </div>
+    <div class="tiny-hint" id="specials-hint"></div>
+  </div>
+
+  <div class="idle-section">
+    <div class="setting-label">Fun facts (Claude)</div>
+    <div class="tiny-hint" id="facts-hint"></div>
+  </div>
+
+  <div class="idle-section idle-controls">
+    <div class="setting-label">Custom message card</div>
+    <textarea id="custom-lines" class="custom-lines" rows="6" spellcheck="false" placeholder="{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}{red}
+{white}{white}{white}   WELCOME TO   {white}{white}{white}
+…up to 6 lines, 22 columns each"></textarea>
+    <div class="custom-row">
+      <label>for <input id="custom-hours" type="number" min="0.5" max="336" step="0.5" value="24" /> hrs</label>
+      <label><input id="custom-pinned" type="checkbox" /> pin (show only this card)</label>
+      <button onclick="setCustomCard()">Set card</button>
+      <button class="danger" onclick="clearCustomCard()">Clear</button>
+    </div>
+    <div class="tiny-hint">Tokens <code>{red} {orange} {yellow} {green} {blue} {violet} {white}</code> become tiles. Text is uppercased; anything past 22 columns is cut.</div>
   </div>
 </div>
 
@@ -504,11 +586,7 @@ const CODE_TO_CHAR = (() => {
 })();
 const COLOR_CODES = new Set([63,64,65,66,67,68,69,70,71]);
 
-function renderBoard(matrix) {
-  const el = document.getElementById('board');
-  const empty = document.getElementById('board-empty');
-  if (!matrix || matrix.length === 0) { el.style.display = 'none'; empty.style.display = 'block'; return; }
-  el.style.display = 'grid'; empty.style.display = 'none';
+function boardCellsHTML(matrix) {
   let html = '';
   for (const row of matrix) {
     for (const code of row) {
@@ -520,7 +598,15 @@ function renderBoard(matrix) {
       }
     }
   }
-  el.innerHTML = html;
+  return html;
+}
+
+function renderBoard(matrix) {
+  const el = document.getElementById('board');
+  const empty = document.getElementById('board-empty');
+  if (!matrix || matrix.length === 0) { el.style.display = 'none'; empty.style.display = 'block'; return; }
+  el.style.display = 'grid'; empty.style.display = 'none';
+  el.innerHTML = boardCellsHTML(matrix);
 }
 
 let pauseRemaining = null;
@@ -663,12 +749,19 @@ async function refresh() {
     if (d.user_settings) {
       const rr = d.user_settings.refresh_rate;
       const fm = d.user_settings.filter_mode;
+      const bm = d.user_settings.board_mode || 'live';
       document.querySelectorAll('#chips-refresh .chip').forEach(b => {
         b.classList.toggle('active', b.dataset.rr === rr);
       });
       document.querySelectorAll('#chips-filter .chip').forEach(b => {
         b.classList.toggle('active', b.dataset.fm === fm);
       });
+      document.querySelectorAll('#chips-mode .chip').forEach(b => {
+        b.classList.toggle('active', b.dataset.bm === bm);
+      });
+      const cardsOn = bm === 'cards';
+      document.getElementById('row-refresh').classList.toggle('muted', cardsOn);
+      document.getElementById('row-filter').classList.toggle('muted', cardsOn);
     }
 
   } catch (e) {
@@ -907,6 +1000,154 @@ async function setFilterMode(fm) {
     refresh();
   } catch (e) { alert('Failed: ' + e.message); }
 }
+async function setBoardMode(bm) {
+  try {
+    await fetch(`/api/settings?board_mode=${bm}`, { method: 'POST' });
+    refresh(); loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+// ============================================================================
+//  Idle deck (cards mode)
+// ============================================================================
+function _fmtMins(secs) {
+  if (secs === null || secs === undefined) return '—';
+  if (secs < 60) return `${secs}s`;
+  return `${Math.round(secs / 60)}m`;
+}
+function _fmtWhen(iso) {
+  try {
+    const d = new Date(iso);
+    let h = d.getHours(), m = d.getMinutes();
+    const ap = h >= 12 ? 'P' : 'A'; h = h % 12 || 12;
+    return `${h}:${String(m).padStart(2, '0')}${ap}`;
+  } catch (e) { return '?'; }
+}
+let _customLoaded = false;
+async function loadIdle() {
+  try {
+    const r = await fetch('/api/idle', { cache: 'no-store' });
+    if (!r.ok) throw new Error('idle fetch failed');
+    const d = await r.json();
+    const cardsOn = d.board_mode === 'cards';
+    document.getElementById('idle-mode-label').textContent = cardsOn ? `cards mode · every ${d.cadence_minutes}m` : 'live mode (preview)';
+
+    // Status line
+    const cur = d.deck.find(c => c.id === d.current_card_id);
+    let status = '';
+    if (!cardsOn) {
+      status = `Board is in <b>Live</b> mode — this is a preview of what the deck would show. Switch to <b>Idle Cards</b> in Board Settings to use it.`;
+    } else if (d.interrupt_remaining_s > 0) {
+      status = `A special is on the board — deck resumes in <b>${_fmtMins(d.interrupt_remaining_s)}</b>.`;
+    } else if (cur) {
+      status = `Now showing <span class="now-showing">${cur.title}</span> · next card in <b>${_fmtMins(d.next_rotation_in_s)}</b> · ${d.deck.length} cards in today's deck.`;
+    } else {
+      status = `Board is showing <b>${d.board_kind}</b> — the deck takes over on the next poll.`;
+    }
+    document.getElementById('idle-status').innerHTML = status;
+
+    // Deck previews
+    const grid = document.getElementById('deck-grid');
+    if (!d.deck.length) {
+      grid.innerHTML = '<div class="board-empty">Deck is empty — it fills in as sightings accumulate (or add a custom card below).</div>';
+    } else {
+      grid.innerHTML = d.deck.map((c, i) => `
+        <div class="deck-item ${c.id === d.current_card_id ? 'current' : ''}">
+          <div class="deck-title"><span>${i + 1}. ${c.title}</span>${c.id === d.current_card_id ? '<span>ON BOARD</span>' : ''}</div>
+          <div class="board mini">${boardCellsHTML(c.matrix)}</div>
+        </div>`).join('');
+    }
+
+    // Specials checklist
+    const sp = d.specials || {};
+    const body = document.getElementById('specials-body');
+    if (sp.today && sp.today.length) {
+      body.innerHTML = sp.today.map(it => `
+        <div class="specials-row">
+          <div class="tick ${it.seen_at ? 'seen' : ''}" title="toggle seen" onclick="toggleSpecial('${it.key}')"></div>
+          <div class="lbl">${it.label}<span class="kind">${it.kind}${it.registration ? ' · ' + it.registration : ''}${it.ident ? ' · ' + it.ident : ''}${it.other_airport ? ' · ' + it.other_airport : ''}</span></div>
+          <div class="when">${it.direction} ${_fmtWhen(it.sched_local)}</div>
+          <button class="watch-x idle-controls" title="Remove" onclick="removeSpecial('${it.key}')">×</button>
+        </div>`).join('');
+    } else {
+      body.innerHTML = '<div class="tiny-hint">Nothing on the list for today.</div>';
+    }
+    let sph = sp.enabled
+      ? `FlightAware sweep: ${sp.livery_tails} livery tails + ${sp.special_flights} curated flights · covered through ${sp.covered_through || '—'}`
+      : 'FlightAware sweep is off (DAILY_SPECIALS_ENABLED=false) — list is manual only.';
+    if (sp.last_error) sph += ` · ⚠ ${sp.last_error}`;
+    document.getElementById('specials-hint').textContent = sph;
+
+    // Facts
+    const f = d.facts || {};
+    document.getElementById('facts-hint').textContent = f.enabled
+      ? `${f.count} card(s) today via ${f.model}${f.generated_at ? ' · generated ' + new Date(f.generated_at).toLocaleTimeString() : ''}${f.last_error ? ' · ⚠ ' + f.last_error : ''}`
+      : 'Off — set ANTHROPIC_API_KEY to add Claude-written trivia cards to the deck.';
+
+    // Custom card (only populate the textarea once so we don't clobber typing)
+    if (!_customLoaded) {
+      _customLoaded = true;
+      if (d.custom && d.custom.lines) {
+        document.getElementById('custom-lines').value = d.custom.lines.join('\n');
+        document.getElementById('custom-pinned').checked = !!d.custom.pinned;
+      }
+    }
+  } catch (e) { console.error('loadIdle failed', e); }
+}
+async function idleNext() {
+  try {
+    const r = await fetch('/api/idle/next', { method: 'POST' });
+    const d = await r.json();
+    if (!d.pushed) alert('Deck is empty — nothing to push yet.');
+    refresh(); loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function idleRefresh(regen) {
+  try {
+    const btnMsg = regen ? 'Asking Claude for fresh facts…' : 'Refreshing…';
+    document.getElementById('facts-hint').textContent = btnMsg;
+    await fetch(`/api/idle/refresh?regenerate_facts=${regen ? 'true' : 'false'}`, { method: 'POST' });
+    loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function addSpecial() {
+  const label = document.getElementById('sp-label').value.trim();
+  const dir = document.getElementById('sp-dir').value;
+  const t = document.getElementById('sp-time').value;
+  if (!label || !t) return;
+  try {
+    await fetch(`/api/idle/specials/add?label=${encodeURIComponent(label)}&direction=${dir}&time_hhmm=${t}`, { method: 'POST' });
+    document.getElementById('sp-label').value = '';
+    loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function removeSpecial(key) {
+  try { await fetch(`/api/idle/specials/remove?key=${encodeURIComponent(key)}`, { method: 'POST' }); loadIdle(); }
+  catch (e) { alert('Failed: ' + e.message); }
+}
+async function toggleSpecial(key) {
+  try { await fetch(`/api/idle/specials/toggle?key=${encodeURIComponent(key)}`, { method: 'POST' }); loadIdle(); }
+  catch (e) { alert('Failed: ' + e.message); }
+}
+async function setCustomCard() {
+  const lines = document.getElementById('custom-lines').value.split('\n').slice(0, 6);
+  const hours = parseFloat(document.getElementById('custom-hours').value) || 24;
+  const pinned = document.getElementById('custom-pinned').checked;
+  try {
+    const r = await fetch('/api/idle/custom', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lines, hours, pinned }) });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function clearCustomCard() {
+  try {
+    await fetch('/api/idle/custom/clear', { method: 'POST' });
+    document.getElementById('custom-lines').value = '';
+    document.getElementById('custom-pinned').checked = false;
+    loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
 async function doPause(hours) {
   try {
     const r = await fetch(`/pause?hours=${hours}`, { method: 'POST' });
@@ -1029,6 +1270,7 @@ loadProfiles();
 loadPotus();
 loadHelicopters();
 loadFollowStatus();
+loadIdle();
 initFollowCard();
 startCountdown();
 startLastPushTicker();
@@ -1040,6 +1282,7 @@ setInterval(loadProfiles, 30000);
 setInterval(loadPotus, 10000);  // 10s — fastest refresh on dashboard since it's time-sensitive
 setInterval(loadHelicopters, 30000);
 setInterval(loadFollowStatus, 15000);
+setInterval(loadIdle, 30000);
 
 // ============================================================================
 //  Follow a Flight — verify, start, stop, refresh

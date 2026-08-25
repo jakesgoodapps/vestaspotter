@@ -132,6 +132,13 @@ def _snapshot_for_date(date_iso: str, airport_code: str) -> dict:
     }
 
 
+def compute_snapshot(date_iso: str, airport_code: str) -> dict:
+    """Public alias — compute a day's totals on the fly without writing them.
+    Used by idle cards / fun facts for "yesterday" before the 00:02 snapshot
+    job has run (e.g. right after a restart)."""
+    return _snapshot_for_date(date_iso, airport_code)
+
+
 def snapshot_if_missing(date_iso: str, airport_code: str) -> Optional[dict]:
     """Snapshot a given day if we haven't already. Returns the snapshot dict
     if newly written, or None if already present."""

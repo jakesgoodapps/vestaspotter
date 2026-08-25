@@ -39,6 +39,17 @@ _AIRPORT_RARE: dict[str, str] = _load_yaml(_AIRPORT_RARE_PATH)
 _AIRCRAFT_NAMES: dict[str, str] = _load_yaml(_AIRCRAFT_NAMES_PATH)
 
 
+def all_liveries() -> dict[str, str]:
+    """Full tail → livery-name map (copy). Used by daily_specials.py to ask
+    FlightAware which of these tails are scheduled through the airport."""
+    return dict(_LIVERIES)
+
+
+def all_airport_rare() -> dict[str, str]:
+    """Full ICAO type → description map for the configured airport (copy)."""
+    return dict(_AIRPORT_RARE)
+
+
 def get_livery(registration: Optional[str]) -> Optional[str]:
     if not registration:
         return None

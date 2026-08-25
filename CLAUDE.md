@@ -78,7 +78,12 @@ VestaboardClient.push (vestaboard.py)
 | `cost_tracker.py` | SQLite log of every FA call + per-endpoint pricing → monthly estimate |
 | `daily_history.py` | End-of-day snapshots into a separate SQLite table |
 | `scheduled_profiles.py` | Time-of-day rules that override manual settings |
-| `settings_state.py` | Manual user settings (refresh_rate, filter_mode) persisted to JSON |
+| `settings_state.py` | Manual user settings (board_mode, refresh_rate, filter_mode) persisted to JSON |
+| `idle_cards.py` | **Cards mode** deck: card renderers (pure) + `build_deck()` (DB reads) + persisted rotation state |
+| `daily_specials.py` | Today's-specials checklist — FA `/flights/{tail}?ident_type=registration` sweep of liveries.yaml + `airport_specials_{CODE}.yaml`, tick-off on sighting |
+| `fun_facts.py` | Claude-generated trivia cards (one Messages API call/day, cached, charset-sanitized) |
+| `custom_card.py` | User message card (`{red}` tile tokens, expiry, pin) |
+| `sun_times.py` | NOAA sunrise/sunset/golden hour, no deps |
 | `pause_state.py` | Pause-with-auto-resume state persisted to JSON |
 | `watch_list.py` | VIP tail whitelist (bypasses throttle + filter) persisted to JSON |
 | `board_state.py` | Last-pushed frame persistence (survives container restart) |
@@ -108,7 +113,12 @@ User-facing dashboard at `/` (full controls) and `/live` (read-only guest view).
 | GET | `/api/cost` | Monthly FA spend estimate |
 | GET | `/api/history` | Recent daily snapshots |
 | GET | `/api/helicopters` | Helicopter-specific stats |
-| GET/POST | `/api/settings` | Get/update manual settings (refresh_rate, filter_mode) |
+| GET/POST | `/api/settings` | Get/update manual settings (board_mode, refresh_rate, filter_mode) |
+| GET | `/api/idle` | Cards mode bundle: mode, timers, today's deck (with matrices), specials, facts, custom card |
+| POST | `/api/idle/next` | Advance the deck and push now (any mode) |
+| POST | `/api/idle/refresh` | Re-pull FA specials + Claude facts (`?regenerate_facts=true` forces a new Claude call) |
+| GET/POST/DELETE | `/api/idle/custom` | Custom message card (`{"lines": [...], "hours": 24, "pinned": false}`) |
+| POST | `/api/idle/specials/{add,remove,toggle}` | Hand-edit today's checklist |
 | GET/POST | `/api/profiles*` | List/add/remove scheduled rules |
 | GET/POST | `/api/watchlist*` | List/add/remove VIP tails |
 | GET | `/api/potus` | POTUS detector state (returns `{"enabled": false}` if disabled) |
@@ -139,6 +149,21 @@ FA HTTP call so the dashboard shows live spend. Hardcoded pricing matches
 FA's published rates and the May 2026 invoice this project was originally
 built against. There's a `_AIRPORT_MOVEMENTS_INCIDENT_DOCS` reference in
 the code explaining why paginated `/flights/arrivals` calls are off-limits.
+
+**Two board modes.** `settings_state.board_mode` is `live` (classic: every
+flight flaps, subject to refresh_rate/filter_mode) or `cards`. In cards
+mode `scheduler._tick_cards` owns the board: the deck from
+`idle_cards.build_deck()` advances every `idle_cadence_minutes`; only
+`is_rare` / `livery_name` / watch-list aircraft get pushed, which opens an
+`idle_linger_minutes` window, after which the deck resumes on the specials
+card (`pick_next_index(after_interrupt=True)`). `SpotterState.last_render_kind`
+('aircraft' | 'card' | 'potus' | 'followed' | 'no_traffic') is how the deck
+knows something else took the board and it should re-push on the next poll.
+Followed flights and POTUS pre-empt both modes unchanged. Ordinary overhead
+traffic is still enriched + recorded in cards mode so stats stay accurate.
+Network-backed card sources (FA specials sweep, Claude facts) refresh lazily
+inside `push_next_card()` — at most hourly, no separate loop — and are
+heavily guarded (one sweep per day, covered-through date, 1h backoff).
 
 **POTUS detector is geometric only.** Watches for any helicopter doing
 circular laps around the configured `POTUS_ORBIT_CENTER_LAT/LON`, then
@@ -176,7 +201,11 @@ The directory is gitignored so you won't see it in a fresh clone — it's create
 ├── watch_list.json           # VIP tail whitelist
 ├── last_render.json          # last-pushed matrix (for board preview restoration)
 ├── potus_schedule_cache.json # factba.se daily download (if POTUS enabled)
-└── potus_schedule_meta.json
+├── potus_schedule_meta.json
+├── idle_state.json           # cards mode: deck index, last card push, linger window
+├── daily_specials.json       # today's/tomorrow's checklist items + seen_at
+├── fun_facts.json            # today's Claude cards (cached so restarts don't re-bill)
+└── custom_card.json          # user message card (if set)
 ```
 
 All databases are SQLite — single-file, zero-config, fast enough at this scale.
@@ -211,6 +240,15 @@ based on the configured `AIRPORT_CODE`.
 **Add to liveries.yaml**: just add `N12345: "AIRLINE LIVERY NAME"`. Restart container.
 
 **Add to aircraft_names.yaml**: same pattern — `ICAOTYPE: "FRIENDLY NAME"`.
+
+**Add to airport_specials_{CODE}.yaml**: `UA2004: "757 FROM DEN"` — flight
+numbers known to bring a rare type. daily_specials.py looks each up on FA
+($0.005) and puts the legs on the checklist card.
+
+**Add a new idle card**: write a pure `render_x_card(data, footer)` in
+`idle_cards.py` (see the existing ones — `_title_row` + `_body` helpers),
+add a provider closure in `build_deck()` wrapped by `_safe`, and add a
+sample scenario to `render_test._card_scenarios()`.
 
 **Add a new dashboard card**: define an API endpoint in `main.py`, add a
 JS fetcher in `templates/index.html`'s script block, add the card HTML +

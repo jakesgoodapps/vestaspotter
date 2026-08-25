@@ -435,21 +435,41 @@ class FlightEnricher:
         self._airport_status_cache[airport_code] = (status, now + _AIRPORT_STATUS_TTL)
         return status
 
-    async def get_flight_instances(self, ident: str) -> list[dict]:
+    async def get_flight_instances(
+        self,
+        ident: str,
+        ident_type: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+    ) -> list[dict]:
         """Fetch all instances of a flight from /flights/{ident}.
 
         Returns the raw list of flight dicts (one per recent day). Caller
         is responsible for picking the right instance — e.g. by matching
         scheduled_out date in the origin airport's local timezone.
 
-        Used by the followed-flight tracker, NOT by per-overhead enrichment.
+        `ident` may be a flight designator (UA1234), a registration (N905NN
+        with ident_type="registration"), or an fa_flight_id. `start`/`end`
+        are ISO dates; FA allows at most 10 days back and 2 days ahead —
+        that 2-day lookahead is what daily_specials.py uses to learn which
+        livery tails are scheduled through the airport.
+
+        Used by the followed-flight tracker + daily specials sweep, NOT by
+        per-overhead enrichment. One result set (15 flights) per call.
         """
         if not self.api_key:
             return []
         url = f"{self.AEROAPI_BASE}/flights/{ident}"
+        params: dict[str, str] = {}
+        if ident_type:
+            params["ident_type"] = ident_type
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers={"x-apikey": self.api_key}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.get(url, params=params or None, headers={"x-apikey": self.api_key}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     cost_tracker.record("/flights/{ident}")
                     if resp.status != 200:
                         print(f"FA /flights/{ident} failed: HTTP {resp.status}")

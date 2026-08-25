@@ -1,8 +1,17 @@
 """Persistent user settings for VestaSpotter board updates.
 
-Two independent controls:
+Three independent controls:
+  - board_mode: what the board does when nothing special is happening
+      'live'  → classic spotter: every overhead flight flaps the board
+                (subject to refresh_rate + filter_mode below). Demo mode.
+      'cards' → idle deck: the board rests on a rotating deck of cards
+                (today's specials checklist, yesterday's stats, fun facts…)
+                and only rare types / liveries / watch-list tails interrupt.
+                See idle_cards.py.
   - refresh_rate: throttle pushes ('every_flight' | '5min' | '10min' | '30min')
+                  (live mode only)
   - filter_mode: which flights flap the board ('all' | 'special')
+                 (live mode only — cards mode is implicitly special-only)
 
 Stored as JSON in data/settings_state.json. Survives container restarts.
 """
@@ -17,6 +26,7 @@ _lock = Lock()
 
 VALID_REFRESH_RATES = {"every_flight", "5min", "10min", "30min"}
 VALID_FILTER_MODES = {"all", "special"}
+VALID_BOARD_MODES = {"live", "cards"}
 
 THROTTLE_SECONDS = {
     "every_flight": 0,
@@ -26,6 +36,7 @@ THROTTLE_SECONDS = {
 }
 
 DEFAULTS = {
+    "board_mode": "live",
     "refresh_rate": "every_flight",
     "filter_mode": "all",
 }
@@ -40,6 +51,7 @@ def _read() -> dict:
     except Exception:
         return dict(DEFAULTS)
     return {
+        "board_mode": data.get("board_mode") if data.get("board_mode") in VALID_BOARD_MODES else DEFAULTS["board_mode"],
         "refresh_rate": data.get("refresh_rate") if data.get("refresh_rate") in VALID_REFRESH_RATES else DEFAULTS["refresh_rate"],
         "filter_mode": data.get("filter_mode") if data.get("filter_mode") in VALID_FILTER_MODES else DEFAULTS["filter_mode"],
     }
@@ -56,9 +68,17 @@ def get_settings() -> dict:
         return _read()
 
 
-def update_settings(refresh_rate: str | None = None, filter_mode: str | None = None) -> dict:
+def update_settings(
+    refresh_rate: str | None = None,
+    filter_mode: str | None = None,
+    board_mode: str | None = None,
+) -> dict:
     with _lock:
         cur = _read()
+        if board_mode is not None:
+            if board_mode not in VALID_BOARD_MODES:
+                raise ValueError(f"invalid board_mode, must be one of {VALID_BOARD_MODES}")
+            cur["board_mode"] = board_mode
         if refresh_rate is not None:
             if refresh_rate not in VALID_REFRESH_RATES:
                 raise ValueError(f"invalid refresh_rate, must be one of {VALID_REFRESH_RATES}")
@@ -73,3 +93,9 @@ def update_settings(refresh_rate: str | None = None, filter_mode: str | None = N
 
 def throttle_seconds_for(refresh_rate: str) -> int:
     return THROTTLE_SECONDS.get(refresh_rate, 0)
+
+
+def board_mode() -> str:
+    """Current board mode ('live' | 'cards'). Not affected by scheduled
+    profiles — those only cover refresh_rate / filter_mode."""
+    return get_settings()["board_mode"]

@@ -1,0 +1,25 @@
+# Curated "special flights" at DCA — flight numbers that are known to bring a
+# rare type through the airport on a schedule. daily_specials.py asks
+# FlightAware about each of these once every other day ($0.005 each) and puts
+# the matching legs on the "TODAY AT DCA" checklist card in cards mode.
+#
+# This is the CHEAP way to know "is the 757 coming today?" — the expensive
+# way (paginating the whole airport board) is exactly what caused the $750
+# incident, so we don't do that. See backend/airport_movements.py.
+#
+# Format:   FLIGHTNUMBER: "LABEL SHOWN ON THE BOARD"
+#   - Use the IATA designator (UA1234), no spaces.
+#   - Labels get truncated to ~11 chars on the board, so lead with what
+#     matters: "757 FROM DEN" not "UNITED BOEING 757-200 DENVER".
+#   - Both directions are matched automatically (the DCA arrival AND the
+#     DCA departure of the same flight number will show up as two lines).
+#
+# Where to find candidates: FlightAware's airport page filtered by aircraft
+# type, planespotters.net, or just keep an eye on which flights show up with
+# yellow bookends on the board and note their numbers here.
+#
+# Examples (VERIFY the numbers before uncommenting — schedules change every
+# season and a stale entry just wastes half a cent a day):
+#
+# UA2004: "757 FROM DEN"
+# AA1234: "A321T FROM LAX"

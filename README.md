@@ -35,6 +35,15 @@ ARR  945P // 950P 🟨+5M
 - Auto-detects runway flow from the ratio of your recent arrivals vs departures
 - Skips polling + pushing during configurable quiet hours (overnight API budget saver)
 
+**Idle Cards mode** (toggle in the dashboard — the "I don't want it flapping every 5 minutes" mode)
+- The board rests on a rotating deck of cards instead of flapping for every flight — one card per hour by default
+- **Today's specials checklist** — livery tails + curated special flights scheduled through your airport today, ⬜ pending → 🟩 seen as they fly by (one cheap FlightAware lookup per tail, every other day)
+- **Stats cards** from your own sightings DB: yesterday in review, hall of fame + next milestone, last 7 days, runway flow, sunrise/sunset/golden hour, "one year ago"
+- **Claude fun facts** (optional, `ANTHROPIC_API_KEY`) — a few trivia cards a day grounded in what you actually saw, ~1-2¢/day
+- **Custom message card** — "WELCOME TO DC, AILEOS!" with `{red}` `{white}` tile tokens; pin it to show only that
+- Rare types, liveries and watch-list tails still interrupt the deck exactly like before, then it resumes on the checklist with that plane ticked
+- Switch back to **Live** mode any time for a demo — every flight flaps again
+
 **Dashboard** (`/`)
 - Live board preview
 - Today's stats: planes seen, ARR/DEP split, runway flow indicator
@@ -134,6 +143,10 @@ See `.env.example` for the full annotated list. Key vars:
 | `AIRPORT_CODE` | Nearest IATA airport for arr/dep classification + footer |
 | `PREDICT_SECONDS_AHEAD` | Trajectory lookahead. Higher = more lead time, more false positives. 100 is a good default. |
 | `ENABLE_POTUS_DETECTOR` | DC-only. Default `false`. |
+| `IDLE_CADENCE_MINUTES` | Idle Cards mode: how often the deck advances (default 60) |
+| `IDLE_LINGER_MINUTES` | Idle Cards mode: how long a special flyover stays before the deck resumes (default 15) |
+| `DAILY_SPECIALS_ENABLED` | Idle Cards mode: FlightAware sweep for today's liveries / curated flights (default `true`, ~$0.005 per tail every other day) |
+| `ANTHROPIC_API_KEY` | Optional. Enables Claude-written trivia cards in Idle Cards mode (~1-2¢/day). Blank = off |
 | `QUIET_HOURS_START/END` | Skip everything during this window (HH:MM local) |
 
 ## Architecture

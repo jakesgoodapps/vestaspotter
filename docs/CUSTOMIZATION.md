@@ -140,7 +140,33 @@ Look at the file as it ships — common Boeing, Airbus, Embraer, Bombardier, and
 
 ---
 
-## 4. Quick-start: building your customization in week 1
+## 4. `airport_specials_{CODE}.yaml` — flights that bring a rare type
+
+Used by **Idle Cards mode** for the "TODAY AT DCA" checklist card. Where
+`liveries.yaml` is keyed by *tail* (and the app can ask FlightAware where
+each tail is going today), rare *types* have no tail to look up — so this
+file lists the scheduled flight numbers that are known to carry one.
+
+### Format
+
+```yaml
+UA2004: "757 FROM DEN"       # label shown on the board (~11 chars visible)
+AA1234: "A321T FROM LAX"
+```
+
+Each flight number costs one `/flights/{ident}` call ($0.005) every other
+day. Both directions are matched automatically, so the DCA arrival and the
+DCA departure of the same number show up as two lines. Schedules change
+every season — prune entries that stop showing up.
+
+This is deliberately the *cheap* way to know what's coming. Paginating the
+whole airport board is what caused the $750 incident (see
+`backend/airport_movements.py`); don't.
+
+Anything you can't predict (military, diversions) you can still hand-add
+for the day from the dashboard's Idle Deck card.
+
+## 5. Quick-start: building your customization in week 1
 
 ```
 Day 1   — Set AIRPORT_CODE to your IATA. Copy airport_rare_TEMPLATE.yaml
@@ -161,7 +187,7 @@ Restart the container (`docker compose up -d --build`) to pick up YAML changes.
 
 ---
 
-## 5. Going further
+## 6. Going further
 
 **Sharing with the community.** If you build a good airport_rare YAML or accumulate a meaningful liveries list, please PR them back. Goals:
 - Every major US airport has a curated `airport_rare_{CODE}.yaml` shipped in the repo

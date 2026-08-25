@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from . import board_state, cost_tracker, daily_history, faa_registry, followed_flight, pause_state, potus_schedule, scheduled_profiles, settings_state, sightings_db, watch_list
+from . import board_state, cost_tracker, custom_card, daily_history, daily_specials, faa_registry, followed_flight, fun_facts, idle_cards, pause_state, potus_schedule, scheduled_profiles, settings_state, sightings_db, watch_list
 from .config import settings
 from .data_pipeline import to_aircraft_view, to_airport_view
 from .enrichment import FlightEnricher
@@ -18,8 +18,11 @@ from .scheduler import (
     SpotterState,
     _push_aircraft,
     _push_no_traffic,
+    build_current_deck,
     get_detector,
     is_quiet_hours,
+    push_next_card,
+    refresh_idle_sources,
     start_daily_snapshot_loop,
     start_followed_flight_loop,
     start_polling_loop,
@@ -67,7 +70,9 @@ async def lifespan(app: FastAPI):
         state.last_render_matrix = saved.get("matrix")
         state.last_pushed_icao24 = saved.get("last_pushed_icao24")
         state.last_pushed_no_traffic = bool(saved.get("last_pushed_no_traffic"))
+        state.last_render_kind = saved.get("kind") or "aircraft"
         log.info("restored last-pushed frame from disk (saved at %s)", saved.get("saved_at"))
+    state.idle = idle_cards.load_state()
 
     app.state.tracker = tracker
     app.state.enricher = enricher
@@ -257,6 +262,13 @@ async def api_status():
         "pause": pause_state.status(),
         "quiet_hours_active": is_quiet_hours(),
         "user_settings": settings_state.get_settings(),
+        "board_kind": state.last_render_kind,
+        "idle": {
+            "next_rotation_in_s": state.idle.next_rotation_in_s(),
+            "interrupt_remaining_s": state.idle.interrupt_remaining_s(),
+            "current_card_id": state.idle.last_card_id if state.last_render_kind == "card" else None,
+            "cadence_minutes": settings.idle_cadence_minutes,
+        },
     }
 
 
@@ -266,11 +278,109 @@ async def api_get_settings():
 
 
 @app.post("/api/settings")
-async def api_update_settings(refresh_rate: str | None = None, filter_mode: str | None = None):
+async def api_update_settings(refresh_rate: str | None = None, filter_mode: str | None = None, board_mode: str | None = None):
     try:
-        return settings_state.update_settings(refresh_rate=refresh_rate, filter_mode=filter_mode)
+        return settings_state.update_settings(refresh_rate=refresh_rate, filter_mode=filter_mode, board_mode=board_mode)
     except ValueError as e:
         return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Idle deck (cards mode)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/idle")
+async def api_idle():
+    """Everything the Idle Deck dashboard card needs: mode, timers, the deck
+    as it would render right now, specials checklist, facts + custom card."""
+    state: SpotterState = app.state.spotter
+    enricher: FlightEnricher = app.state.enricher
+    idle = state.idle
+    try:
+        deck = await build_current_deck(enricher)
+    except Exception as e:
+        log.warning("idle deck build failed: %s", e)
+        deck = []
+    return {
+        "board_mode": settings_state.board_mode(),
+        "cadence_minutes": settings.idle_cadence_minutes,
+        "linger_minutes": settings.idle_linger_minutes,
+        "board_kind": state.last_render_kind,
+        "current_card_id": idle.last_card_id if state.last_render_kind == "card" else None,
+        "next_rotation_in_s": idle.next_rotation_in_s(),
+        "interrupt_remaining_s": idle.interrupt_remaining_s(),
+        "deck": [{"id": c.id, "title": c.title, "matrix": c.matrix} for c in deck],
+        "specials": daily_specials.status(),
+        "facts": fun_facts.status(),
+        "custom": custom_card.get(),
+    }
+
+
+@app.post("/api/idle/next")
+async def api_idle_next():
+    """Advance the deck now (ignores cadence + linger). Works in any mode —
+    handy for previewing cards on the real board."""
+    state: SpotterState = app.state.spotter
+    card = await push_next_card(state, app.state.enricher, app.state.board)
+    return {"pushed": card is not None, "card": card and {"id": card.id, "title": card.title}}
+
+
+@app.post("/api/idle/refresh")
+async def api_idle_refresh(regenerate_facts: bool = False):
+    """Re-pull network sources: FA specials sweep (if today isn't covered)
+    and Claude facts (if none yet today; `regenerate_facts=true` forces a
+    fresh call — costs ~1-2¢)."""
+    result = await refresh_idle_sources(app.state.enricher)
+    if regenerate_facts:
+        result["facts_generated"] = await fun_facts.ensure_fresh(force=True)
+    result["specials"] = daily_specials.status()
+    result["facts"] = fun_facts.status()
+    return result
+
+
+@app.get("/api/idle/custom")
+async def api_idle_custom_get():
+    return custom_card.get() or {}
+
+
+@app.post("/api/idle/custom")
+async def api_idle_custom_set(payload: dict):
+    """Body: {"lines": [...up to 6 strings...], "hours": 24, "pinned": false}.
+    Lines may contain tile tokens like {red} {white} {blue}."""
+    try:
+        return custom_card.set_card(
+            lines=list(payload.get("lines") or []),
+            hours=float(payload.get("hours") or 24),
+            pinned=bool(payload.get("pinned")),
+        )
+    except (ValueError, TypeError) as e:
+        return {"error": str(e)}
+
+
+@app.delete("/api/idle/custom")
+@app.post("/api/idle/custom/clear")
+async def api_idle_custom_clear():
+    return {"cleared": custom_card.clear()}
+
+
+@app.post("/api/idle/specials/add")
+async def api_idle_specials_add(label: str, direction: str, time_hhmm: str):
+    """Hand-add a checklist item for today (e.g. a C-17 you know is coming)."""
+    try:
+        return daily_specials.add_manual(label, direction, time_hhmm)
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/idle/specials/remove")
+async def api_idle_specials_remove(key: str):
+    return {"removed": daily_specials.remove_item(key)}
+
+
+@app.post("/api/idle/specials/toggle")
+async def api_idle_specials_toggle(key: str):
+    item = daily_specials.toggle_seen(key)
+    return item or {"error": "no such item"}
 
 
 @app.get("/pause")
@@ -493,8 +603,11 @@ async def force_push():
         enriched = await enricher.enrich(overhead[0])
         await _push_aircraft(state, enriched, enricher, board)
         return {"pushed": True, "aircraft": enriched.callsign}
-    else:
-        return {"pushed": False, "aircraft": None, "reason": "no traffic in view, board left untouched"}
+    if settings_state.board_mode() == "cards":
+        card = await push_next_card(state, enricher, board)
+        if card:
+            return {"pushed": True, "aircraft": None, "card": card.id}
+    return {"pushed": False, "aircraft": None, "reason": "no traffic in view, board left untouched"}
 
 
 @app.get("/sightings")
