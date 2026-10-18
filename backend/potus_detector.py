@@ -53,6 +53,12 @@ IMMINENT_DURATION_S = 900        # how long to hold IMMINENT before POST (real P
 IMMINENT_DURATION_DRILL_S = 60   # short hold for drill mode (just enough to show "bye helo")
 POST_DURATION_S = 600            # cooldown for real POTUS event
 POST_DURATION_DRILL_S = 60       # cooldown for drill mode — release board fast
+# Hard caps on CONFIRMED. A real movement is 30-40 min of laps; if we're still
+# CONFIRMED past this we've lost the plot (helo landed / dropped off OpenSky
+# without ever being seen >PATTERN_BREAK_DISTANCE_NM away). Without a cap the
+# detector sat in CONFIRMED for 10+ days in Oct 2026 and froze the whole board.
+CONFIRMED_MAX_DURATION_S = 2700        # 45 min for a possible real movement
+CONFIRMED_MAX_DURATION_DRILL_S = 900   # 15 min when factba.se shows no trip
 
 
 def haversine_nm(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -225,9 +231,23 @@ class PotusDetector:
             return self.state
 
         if self.state.state == "CONFIRMED":
-            # Check for pattern break: the active heli flew >2.5nm from WH
+            # Three ways out, all of them → IMMINENT (which has its own timeout):
+            #   1. pattern break: the active heli flew >2.5nm from WH
+            #   2. the active heli's track was dropped (not seen for
+            #      HELI_GONE_THRESHOLD_S) — it landed or fell off OpenSky
+            #   3. we've been CONFIRMED longer than any real movement lasts
             t = self.tracks.get(self.state.active_icao24) if self.state.active_icao24 else None
+            max_hold = CONFIRMED_MAX_DURATION_DRILL_S if self.state.is_drill_suspected else CONFIRMED_MAX_DURATION_S
+            confirmed_for = now - self.state.confirmed_at if self.state.confirmed_at else 0.0
             if t and t.distance_to_wh() > PATTERN_BREAK_DISTANCE_NM:
+                self.state.imminent_at = now
+                self._transition("IMMINENT", now)
+            elif t is None:
+                print(f"POTUS detector: active helo {self.state.active_callsign} track gone — treating as pattern break")
+                self.state.imminent_at = now
+                self._transition("IMMINENT", now)
+            elif confirmed_for >= max_hold:
+                print(f"POTUS detector: CONFIRMED for {int(confirmed_for)}s (cap {max_hold}s) — timing out")
                 self.state.imminent_at = now
                 self._transition("IMMINENT", now)
             elif candidate and candidate.laps_observed > self.state.laps_at_confirm:
@@ -263,6 +283,20 @@ class PotusDetector:
     def _transition(self, new_state: str, now: float) -> None:
         self.state.state = new_state
         self.state.last_change_at = now
+
+    def reset(self, now: Optional[float] = None) -> DetectorState:
+        """Manual escape hatch (dashboard button / POST /api/potus/reset).
+        Drops all tracks and returns to IDLE so the board is released
+        immediately."""
+        if now is None:
+            now = time.time()
+        prev = self.state.state
+        self.tracks = {}
+        self.state = DetectorState()
+        self.state.last_check_at = now
+        self._transition("IDLE", now)
+        print(f"POTUS detector: manual reset from {prev}")
+        return self.state
 
     def status_dict(self) -> dict:
         s = self.state

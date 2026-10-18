@@ -291,6 +291,9 @@
     <div class="box"><div class="v" id="potus-dist">—</div><div class="l">DIST TO WH</div></div>
   </div>
   <div class="potus-detail" id="potus-schedule" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);">Schedule: loading…</div>
+  <div class="idle-controls" id="potus-reset-wrap" style="margin-top: 8px; display: none;">
+    <button class="danger" onclick="potusReset()">Reset detector &amp; release board</button>
+  </div>
 </div>
 
 <!-- Pause banner (hidden when not paused) -->
@@ -818,6 +821,9 @@ async function loadPotus() {
     }
     detailEl.textContent = detail;
 
+    // Manual escape hatch: only offer it when the detector is actually holding the board.
+    document.getElementById('potus-reset-wrap').style.display = (s === 'CONFIRMED' || s === 'IMMINENT') ? 'block' : 'none';
+
     document.getElementById('potus-laps').textContent = d.laps_observed ?? 0;
     document.getElementById('potus-helo').textContent = d.active_callsign || '—';
     document.getElementById('potus-dist').textContent = d.current_distance_nm !== undefined ? `${d.current_distance_nm}nm` : '—';
@@ -1111,6 +1117,14 @@ async function idlePush(id) {
     const d = await r.json();
     if (!d.pushed) alert(d.reason || 'Nothing pushed.');
     refresh(); loadIdle();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+async function potusReset() {
+  try {
+    const r = await fetch('/api/potus/reset', { method: 'POST' });
+    const d = await r.json();
+    if (d.enabled === false) { alert('POTUS detector is disabled.'); return; }
+    loadPotus(); refresh();
   } catch (e) { alert('Failed: ' + e.message); }
 }
 async function idleNext() {

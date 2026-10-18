@@ -125,6 +125,7 @@ User-facing dashboard at `/` (full controls) and `/live` (read-only guest view).
 | GET/POST | `/api/profiles*` | List/add/remove scheduled rules |
 | GET/POST | `/api/watchlist*` | List/add/remove VIP tails |
 | GET | `/api/potus` | POTUS detector state (returns `{"enabled": false}` if disabled) |
+| POST | `/api/potus/reset` | Force detector back to IDLE and release the board (dashboard button shows in CONFIRMED/IMMINENT) |
 | GET/POST | `/pause` | Pause polling+pushing for N hours |
 | GET/POST | `/resume` | Resume immediately |
 

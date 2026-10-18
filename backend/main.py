@@ -225,6 +225,18 @@ async def api_potus():
     return status
 
 
+@app.post("/api/potus/reset")
+async def api_potus_reset():
+    """Force the detector back to IDLE and release the board. The next poll
+    tick re-renders whatever mode owns the board (cards deck / live flight)."""
+    if not settings.enable_potus_detector:
+        return {"enabled": False}
+    det = get_detector()
+    prev = det.state.state
+    det.reset()
+    return {"enabled": True, "previous_state": prev, "state": det.state.state}
+
+
 @app.get("/api/status")
 async def api_status():
     """Everything the dashboard needs in one call — no FA calls triggered, just
