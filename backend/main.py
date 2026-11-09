@@ -368,22 +368,48 @@ async def api_idle_custom_get():
 
 @app.post("/api/idle/custom")
 async def api_idle_custom_set(payload: dict):
-    """Body: {"lines": [...up to 6 strings...], "hours": 24, "pinned": false}.
-    Lines may contain tile tokens like {red} {white} {blue}."""
+    """Body: {"lines": [...up to 6 strings...], "hours": 24, "pinned": false,
+    "push": true}. Lines may contain tile tokens like {red} {white} {blue}.
+    Saves the card AND pushes it to the board right away (unless paused or
+    `push` is false) — otherwise it would sit in the deck until the next
+    hourly rotation, which reads as "my message didn't go"."""
     try:
-        return custom_card.set_card(
+        result = custom_card.set_card(
             lines=list(payload.get("lines") or []),
             hours=float(payload.get("hours") or 24),
             pinned=bool(payload.get("pinned")),
         )
     except (ValueError, TypeError) as e:
         return {"error": str(e)}
+    result["pushed"] = False
+    if payload.get("push", True):
+        if pause_state.is_paused():
+            result["push_skipped"] = "paused"
+        else:
+            try:
+                card = await push_next_card(app.state.spotter, app.state.enricher, app.state.board, card_id="custom")
+                result["pushed"] = card is not None
+            except Exception as e:
+                result["push_error"] = str(e)
+    return result
 
 
 @app.delete("/api/idle/custom")
 @app.post("/api/idle/custom/clear")
 async def api_idle_custom_clear():
-    return {"cleared": custom_card.clear()}
+    """Remove the custom card. If it's what's on the board right now, advance
+    the deck so the message actually disappears instead of lingering until
+    the next rotation."""
+    existed = custom_card.clear()
+    state: SpotterState = app.state.spotter
+    out = {"cleared": existed, "pushed": False}
+    if existed and state.last_render_kind == "card" and state.idle.last_card_id == "custom" and not pause_state.is_paused():
+        try:
+            card = await push_next_card(state, app.state.enricher, app.state.board, after_interrupt=True)
+            out["pushed"] = card is not None
+        except Exception as e:
+            out["push_error"] = str(e)
+    return out
 
 
 @app.post("/api/idle/specials/add")

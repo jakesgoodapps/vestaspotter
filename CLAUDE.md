@@ -120,7 +120,7 @@ User-facing dashboard at `/` (full controls) and `/live` (read-only guest view).
 | GET | `/api/idle` | Cards mode bundle: mode, timers, today's deck (with matrices), specials, facts, custom card |
 | POST | `/api/idle/next` | Advance the deck and push now (any mode) |
 | POST | `/api/idle/refresh` | Re-pull FA specials + Claude facts (`?regenerate_facts=true` forces a new Claude call) |
-| GET/POST/DELETE | `/api/idle/custom` | Custom message card (`{"lines": [...], "hours": 24, "pinned": false}`) |
+| GET/POST/DELETE | `/api/idle/custom` | Custom message card (`{"lines": [...], "hours": 24, "pinned": false, "push": true}`); POST pushes it to the board immediately unless paused, DELETE advances the deck if it was showing |
 | POST | `/api/idle/specials/{add,remove,toggle}` | Hand-edit today's checklist |
 | GET/POST | `/api/profiles*` | List/add/remove scheduled rules |
 | GET/POST | `/api/watchlist*` | List/add/remove VIP tails |
