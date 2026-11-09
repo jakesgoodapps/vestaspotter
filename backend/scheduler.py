@@ -105,7 +105,10 @@ async def start_polling_loop(
             if pause_state.is_paused():
                 if not was_paused:
                     s = pause_state.status()
-                    print(f"PAUSED until {s.get('resume_at')} — skipping all polls/pushes")
+                    if s.get("indefinite"):
+                        print("OFF (indefinite pause) — skipping all polls/pushes until /resume")
+                    else:
+                        print(f"PAUSED until {s.get('resume_at')} — skipping all polls/pushes")
                     was_paused = True
             elif is_quiet_hours():
                 if was_paused:

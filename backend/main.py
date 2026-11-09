@@ -408,18 +408,28 @@ async def api_idle_specials_toggle(key: str):
 
 @app.get("/pause")
 @app.post("/pause")
-async def pause(hours: float = 2.0):
-    """Pause all polls + pushes for N hours (default 2). Bookmark this URL on
-    your phone for one-tap quiet mode. Examples:
-        GET /pause          → 2 hours
-        GET /pause?hours=4  → 4 hours
-        GET /pause?hours=0.5 → 30 minutes
+async def pause(hours: float = 2.0, indefinite: bool = False):
+    """Pause all polls + pushes for N hours (default 2), or indefinitely.
+    Bookmark this URL on your phone for one-tap quiet mode. Examples:
+        GET /pause                 → 2 hours
+        GET /pause?hours=4         → 4 hours
+        GET /pause?hours=0.5       → 30 minutes
+        GET /pause?indefinite=true → OFF until /resume (vacation mode)
     """
+    if indefinite:
+        pause_state.pause_indefinitely()
+        return {
+            "paused": True,
+            "indefinite": True,
+            "resume_at": None,
+            "message": "VestaSpotter is OFF. It will stay off until you hit /resume.",
+        }
     if hours <= 0 or hours > 24:
-        return {"error": "hours must be between 0 and 24"}
+        return {"error": "hours must be between 0 and 24 (use indefinite=true to turn off)"}
     resume_at = pause_state.pause_for(hours)
     return {
         "paused": True,
+        "indefinite": False,
         "for_hours": hours,
         "resume_at": resume_at.isoformat(),
         "message": f"VestaSpotter paused. Will resume at {resume_at.isoformat()}.",

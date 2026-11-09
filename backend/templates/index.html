@@ -298,9 +298,9 @@
 
 <!-- Pause banner (hidden when not paused) -->
 <div id="pause-banner" class="pause-banner" style="display:none">
-  <div class="head">⏸ Paused</div>
+  <div class="head" id="pause-head">⏸ Paused</div>
   <div class="countdown" id="pause-countdown">--:--:--</div>
-  <div class="sub">Polls and pushes suspended. Will auto-resume.</div>
+  <div class="sub" id="pause-sub">Polls and pushes suspended. Will auto-resume.</div>
 </div>
 
 <!-- Current overhead -->
@@ -574,6 +574,7 @@
     <input id="custom-hours" type="number" min="0.1" max="24" step="0.5" placeholder="hrs" />
     <button class="danger" onclick="doPauseCustom()">Pause</button>
   </div>
+  <button class="danger" style="width: 100%; margin-top: 8px;" onclick="doPauseIndefinite()">⏻ Turn Off — stays off until you resume</button>
   <button class="resume" style="width: 100%; margin-top: 8px;" onclick="doResume()">Resume Now</button>
 </div>
 
@@ -654,7 +655,7 @@ async function refresh() {
     pill.classList.remove('live', 'paused', 'quiet');
     if (d.pause?.paused) {
       pill.classList.add('paused');
-      pill.innerHTML = '<span class="pulse-dot"></span>PAUSED';
+      pill.innerHTML = '<span class="pulse-dot"></span>' + (d.pause.indefinite ? 'OFF' : 'PAUSED');
     } else if (d.quiet_hours_active) {
       pill.classList.add('quiet');
       pill.innerHTML = '<span class="pulse-dot"></span>QUIET HOURS';
@@ -667,7 +668,16 @@ async function refresh() {
     const banner = document.getElementById('pause-banner');
     if (d.pause?.paused) {
       banner.style.display = 'block';
-      pauseRemaining = d.pause.remaining_seconds;
+      if (d.pause.indefinite) {
+        pauseRemaining = null;
+        document.getElementById('pause-head').textContent = '⏻ Off';
+        document.getElementById('pause-countdown').textContent = 'INDEFINITE';
+        document.getElementById('pause-sub').textContent = 'No polls, pushes or API calls. Stays off until you hit Resume Now.';
+      } else {
+        pauseRemaining = d.pause.remaining_seconds;
+        document.getElementById('pause-head').textContent = '⏸ Paused';
+        document.getElementById('pause-sub').textContent = 'Polls and pushes suspended. Will auto-resume.';
+      }
     } else {
       banner.style.display = 'none';
       pauseRemaining = null;
@@ -1198,6 +1208,14 @@ async function doPauseCustom() {
   }
   await doPause(hours);
   input.value = '';
+}
+async function doPauseIndefinite() {
+  if (!confirm('Turn VestaSpotter off? It will stay off (no polls, pushes or API calls) until you come back and hit Resume Now.')) return;
+  try {
+    const r = await fetch('/pause?indefinite=true', { method: 'POST' });
+    await r.json();
+    refresh();
+  } catch (e) { alert('Turn off failed: ' + e.message); }
 }
 async function doResume() {
   try {

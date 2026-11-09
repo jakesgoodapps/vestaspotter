@@ -126,7 +126,7 @@ User-facing dashboard at `/` (full controls) and `/live` (read-only guest view).
 | GET/POST | `/api/watchlist*` | List/add/remove VIP tails |
 | GET | `/api/potus` | POTUS detector state (returns `{"enabled": false}` if disabled) |
 | POST | `/api/potus/reset` | Force detector back to IDLE and release the board (dashboard button shows in CONFIRMED/IMMINENT) |
-| GET/POST | `/pause` | Pause polling+pushing for N hours |
+| GET/POST | `/pause` | Pause polling+pushing for N hours (`?hours=`, max 24) or `?indefinite=true` to turn off until `/resume` |
 | GET/POST | `/resume` | Resume immediately |
 
 ## Key design decisions
